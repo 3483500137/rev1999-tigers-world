@@ -115,3 +115,56 @@ test('navigation and reference landmarks share the actual exported building loca
   assert.ok(w.landmarks.every(l=>l.w>0&&l.d>0));
   assert.ok(w.destinations.east&&w.destinations.castle&&w.destinations.forest);
 });
+
+async function exportedScene(){const b=await readFile('public/models/tigers-world.glb');return JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));}
+function descendants(j,root){const result=[];for(const i of root.children||[]){const n=j.nodes[i];result.push(n,...descendants(j,n));}return result;}
+
+test('the middle opening has one observed rear backrest, not two guessed chairs or invented desktop objects',async()=>{
+  const j=await exportedScene(),root=j.nodes.find(n=>n.extras?.referenceFixture==='east-middle-desk');
+  const parts=descendants(j,root);
+  assert.equal(parts.filter(n=>n.name?.includes('rear back')).length,1);
+  assert.equal(parts.filter(n=>/pale small object|green small object/.test(n.name||'')).length,0);
+  assert.ok(parts.some(n=>n.extras?.observedPart==='raised-inset-panel'));
+});
+
+test('library display preserves three open pink frame shapes instead of a flower cluster',async()=>{
+  const j=await exportedScene(),root=j.nodes.find(n=>n.extras?.referenceBuilding==='library-cutaway'),parts=descendants(j,root);
+  assert.equal(parts.filter(n=>/flower cluster/.test(n.name||'')).length,0);
+  assert.equal(parts.filter(n=>n.extras?.observedPart==='pink-open-frame').length,3);
+  for(const n of parts.filter(n=>n.extras?.observedPart==='pink-open-frame')){
+    const primitive=j.meshes[n.mesh].primitives[0],positions=j.accessors[primitive.attributes.POSITION];
+    assert.ok(positions.count>=16,'Open frames need an inner boundary, not a solid cuboid');
+  }
+});
+
+test('only clearly observed bedrooms contain beds, each with the source two-pillow arrangement',async()=>{
+  const j=await exportedScene(),beds=j.nodes.filter(n=>n.extras?.confirmedSourceBed);
+  assert.equal(beds.length,4);for(const b of beds){
+    const parts=descendants(j,b);assert.equal(parts.filter(n=>n.extras?.observedPart==='pillow').length,2);
+    assert.ok(b.extras.sourcePixels?.length===4&&b.extras.sourceTexture);
+  }
+  for(const fixture of j.nodes.filter(n=>n.extras?.referenceFixture))assert.equal(descendants(j,fixture).filter(n=>n.extras?.confirmedSourceBed).length,0);
+});
+
+test('dorm preserves the visible translucent central sheet rather than leaving the roof empty',async()=>{
+  const j=await exportedScene(),root=j.nodes.find(n=>n.extras?.referenceBuilding==='curved-dormitory');
+  const part=descendants(j,root).find(n=>n.extras?.observedPart==='translucent-central-contour');assert.ok(part);
+  const material=j.materials[j.meshes[part.mesh].primitives[0].material];assert.equal(material.alphaMode,'BLEND');
+});
+
+test('masonry uses the inspected grey wall region rather than the warm roof patch',async()=>{
+  const b=await readFile('public/models/tigers-world.glb'),j=await exportedScene(),mi=j.materials.findIndex(m=>m.name?.startsWith('Foundation limestone')),m=j.materials[mi];
+  assert.deepEqual(m.extras?.sourcePixels,[900,1215,943,1290]);
+  assert.ok(m.pbrMetallicRoughness.baseColorTexture);
+  let points=0;const binStart=28+b.readUInt32LE(12);
+  for(const mesh of j.meshes)for(const p of mesh.primitives)if(p.material===mi){
+    const a=j.accessors[p.attributes.TEXCOORD_0];assert.ok(a,'Masonry must have actual source UVs');
+    const v=j.bufferViews[a.bufferView],offset=binStart+(v.byteOffset||0)+(a.byteOffset||0);
+    for(let i=0;i<a.count;i++){
+      const at=offset+i*(v.byteStride||8),u=b.readFloatLE(at),t=b.readFloatLE(at+4);
+      // glTF texture v runs downward; only the inspected source patch is allowed.
+      assert.ok(u>=900/2048-.0001&&u<=943/2048+.0001&&t>=1215/2048-.0001&&t<=1290/2048+.0001,`Unexpected masonry UV ${u},${t}`);points++;
+    }
+  }
+  assert.ok(points>1000,'Inspect the exported geometry, not just metadata');
+});
