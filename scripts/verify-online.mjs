@@ -1,7 +1,10 @@
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+const run=promisify(execFile);
 const base='https://3483500137.github.io/rev1999-tigers-world/';
-async function get(path){const r=await fetch(new URL(path,base),{signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error(`${path}: HTTP ${r.status}`);return Buffer.from(await r.arrayBuffer());}
+async function get(path){const {stdout}=await run('curl',['--fail','--silent','--show-error','--location','--connect-timeout','10','--max-time','25',new URL(path,base).href],{encoding:'buffer',maxBuffer:10e6});return stdout;}
 const html=(await get('')).toString();if(!html.includes('老虎的金黄'))throw Error('Unexpected homepage');
 const assets=[...html.matchAll(/(?:src|href)="(\.\/assets\/[^" ]+)"/g)].map(m=>m[1]);
 await Promise.all(assets.map(get));
