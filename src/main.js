@@ -11,7 +11,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,1.75)); renderer.outputColorSpa
 renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=1.0;
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#aebfc2');scene.fog=new THREE.FogExp2('#aebfc2',.0019);
-const camera=new THREE.PerspectiveCamera(48,1,.1,650);camera.position.set(50,52,86);
+const camera=new THREE.PerspectiveCamera(48,1,.1,650);camera.position.set(2,63,108);
 const orbit=new OrbitControls(camera,canvas);orbit.target.set(-20,11,-16);orbit.enableDamping=true;orbit.minDistance=5;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
 const hemi=new THREE.HemisphereLight('#d8e5ec','#45543b',1.65);scene.add(hemi);
 const sun=new THREE.DirectionalLight('#e3e9d8',2.3);sun.position.set(-70,100,60);sun.castShadow=true;
@@ -98,7 +98,7 @@ async function toggleSource(value=!sourceMode){
 }
 function resetView(){
   transition=null;if(sourceMode){changeEpisode(episode);return;}
-  if(mode==='overview'){camera.position.set(50,52,86);orbit.target.set(-20,11,-16);orbit.update();}
+  if(mode==='overview'){camera.position.set(2,63,108);orbit.target.set(-20,11,-16);orbit.update();}
   else{camera.position.set(0,mode==='walk'?2:20,35);camera.lookAt(-20,3,-10);directionFromCamera();}
 }
 function jump(place){

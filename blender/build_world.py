@@ -26,6 +26,9 @@ roof=mat('Weathered terrace',(0.28,0.34,0.27))
 trim=mat('Pale masonry coping',(.63,.69,.61))
 joint=mat('Recessed masonry joint',(.24,.31,.27))
 brass=mat('Muted brass',(.39,.33,.17),.5)
+seatframe=mat('Reference ochre seat frame',(.36,.26,.095),.72)
+seatpad=mat('Reference olive ivory seat inset',(.52,.56,.35),.9)
+darktop=mat('Reference dark long fixture',(.055,.065,.052),.7)
 wood=mat('Wood',(0.20,0.14,0.085))
 trunk=mat('Fir bark',(0.14,0.16,0.12))
 greens=[mat('Fir canopy '+str(i),c) for i,c in enumerate([(.18,.22,.10),(.22,.25,.12),(.12,.19,.11),(.27,.24,.13)])]
@@ -39,12 +42,19 @@ water=mat('Water',(0.12,0.24,0.23),0.25)
 glass=mat('Window green',(0.12,0.23,0.19),0.35)
 lightmat=mat('Foundation interior light',(0.68,0.82,0.61))
 p=next(n for n in lightmat.node_tree.nodes if n.type=='BSDF_PRINCIPLED')
-p.inputs['Emission Color'].default_value=(0.4,0.55,0.32,1);p.inputs['Emission Strength'].default_value=0.35
+p.inputs['Emission Color'].default_value=(0.67,0.79,0.52,1);p.inputs['Emission Strength'].default_value=1.4
 
 # Original atlas patch applied to reconstructed limestone walls, without recolouring.
 atlas=bpy.data.images.load(os.path.join(ROOT,'public/assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp'))
 texture=stone.node_tree.nodes.new('ShaderNodeTexImage');texture.image=atlas
 stone.node_tree.links.new(texture.outputs['Color'],next(n for n in stone.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Base Color'])
+# Foliage palette sampled at known pixels of the unchanged source atlas.
+pixels=atlas.pixels[:]
+for m,(px,py) in zip(greens,[(731,962),(630,701),(660,575),(1280,981)]):
+    i=((2047-py)*2048+px)*4
+    colors=[v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in pixels[i:i+3]]
+    next(n for n in m.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Base Color'].default_value=(*colors,1)
+    m['sourcePixel']=[px,py]
 
 colliders=[]
 walk_surfaces=[]
@@ -64,7 +74,9 @@ def cube(name,loc,size,material,solid=False):
 
 def height(x,y):
     ridge=max(0,(y-42)/36)
-    return ridge*(10+7*math.sin(x*.035)**2)+0.45*math.sin(x*.025)*math.cos(y*.06)
+    t=max(0,min(1,(y-48)/32))
+    crest=19+15*math.sin(x*.039)**2+6*math.sin(x*.12)**2
+    return ridge*(10+7*math.sin(x*.035)**2)+0.45*math.sin(x*.025)*math.cos(y*.06)+math.sin(t*math.pi/2)*crest
 
 # Continuous terrain, not disconnected flat cards.
 verts=[];faces=[];nx=128;ny=64
@@ -74,6 +86,7 @@ for j in range(ny+1):
         x=-160+i*320/nx;verts.append((x,y,height(x,y)))
 for j in range(ny):
     for i in range(nx):
+        if -80+(j+.5)*160/ny>49:continue
         a=j*(nx+1)+i;faces.append((a,a+1,a+nx+2,a+nx+1))
 mesh=bpy.data.meshes.new('Terrain mesh');mesh.from_pydata(verts,[],faces);mesh.materials.append(earth);mesh.materials.append(snow)
 terrain=bpy.data.objects.new('Continuous 320m x 160m terrain',mesh);scene.collection.objects.link(terrain)
@@ -159,19 +172,60 @@ def stepped_tower(name,x,y,z,w=7,d=8,h=31):
     for zz in (7,14,21):
         for xx in (-1.35,1.35):cube(name+' tower slit',(x+xx,y-(d+1.4)/2-.04,z+zz),(.32,.045,1.3),glass)
 
-def room(name,x,y,z,w=11,d=10,h=5):
-    floor(name+' floor',x,y,z,w,d,True)
+def reference_fixture(kind,x,y,z):
+    """Trace each central opening independently; do not substitute generic beds.
+
+    Pixel bounds are in the unchanged 2048px a03 atlas, top-left origin.
+    The source names no furniture: keep descriptive shape IDs, not lore claims.
+    """
+    source_pixels={'west-seat':[850,1695,950,1830],
+                   'east-lower-seat':[1585,1790,1715,1935],
+                   'east-middle-desk':[1570,1530,1740,1645],
+                   'east-upper-long-fixture':[1570,1300,1715,1455]}
+    root=bpy.data.objects.new('Reference fixture '+kind,None);scene.collection.objects.link(root)
+    root['referenceFixture']=kind;root['sourceTexture']='assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp'
+    root['sourcePixels']=source_pixels[kind]
+    root['shape']='high-backed-seat' if kind.endswith('seat') else ('crosswise-desk' if kind.endswith('desk') else 'long-dark-fixture')
+    before=set(scene.objects)
+    if kind.endswith('seat'):
+        # The visible object has rigid raised sides/back and an olive seat,
+        # rather than a white mattress, pillow or blanket.
+        cube(kind+' rigid seat',(x,y,z+.85),(2.8,3.7,.4),seatpad)
+        cube(kind+' front ochre rail',(x,y-1.9,z+.85),(3.2,.28,.75),seatframe)
+        cube(kind+' tall back',(x,y+1.75,z+1.85),(3.2,.35,2.55),seatframe)
+        cube(kind+' dark back inset',(x,y+1.55,z+1.92),(2.65,.04,1.5),wood)
+        for side in (-1,1):
+            cube(kind+' raised side',(x+side*1.48,y,z+1.22),(.25,3.7,.55),seatframe)
+            for yy in (-1.65,1.65):cube(kind+' square support',(x+side*1.4,y+yy,z+.4),(.28,.28,.8),wood)
+    elif kind.endswith('desk'):
+        cube(kind+' crosswise top',(x,y,z+1.42),(6,2.4,.25),seatframe)
+        cube(kind+' dark inset',(x,y,z+1.56),(4.3,1.35,.035),wood)
+        for side in (-1,1):
+            cube(kind+' panel support',(x+side*2.4,y,z+.66),(.3,1.9,1.3),wood)
+            cube(kind+' rear seat',(x+side*1.1,y+1.65,z+.55),(.9,.9,.18),wood)
+            cube(kind+' rear back',(x+side*1.1,y+2.02,z+1.13),(.9,.12,1.3),wood)
+        cube(kind+' pale small object',(x-.7,y+.15,z+1.63),(.75,.5,.12),ivory)
+        cube(kind+' green small object',(x+.3,y+.2,z+1.69),(.45,.38,.25),glass)
+    else:
+        cube(kind+' long dark top',(x,y,z+1.1),(3.5,7.8,.22),darktop)
+        cube(kind+' narrow timber inset',(x,y,z+1.23),(1.2,7.6,.03),wood)
+        for side in (-1,1):
+            cube(kind+' slim edge',(x+side*1.65,y,z+1.25),(.11,7.8,.08),brass)
+            for yy in (-3.1,3.1):cube(kind+' slim support',(x+side*1.4,y+yy,z+.52),(.14,.14,1.04),darktop)
+    for ob in set(scene.objects)-before:ob.parent=root
+
+def room(name,x,y,z,w=11,d=10,h=5,fixture='west-seat'):
+    floor(name+' floor',x,y,z,w,d)
+    if fixture.endswith('seat'):checker(name+' checker tiles',x,y,z+.015,w-.8,d-.8)
+    else:checker(name+' narrow checker runner',x,y,z+.015,3.6,d-.8)
     facade(name+' rear',x,y+d/2,z,w,h,door=3.8)
     cube(name+' side',(x+w/2,y,z+h/2),(.5,d,h),stone,True)
     cube(name+' cutaway edge',(x-w/2,y,z+.35),(.5,d,.7),stone)
-    bed(x-2,y+1,z)
-    cube(name+' writing desk',(x+2,y+1,z+1),(1.6,1,.15),wood)
-    for xx in (-.65,.65):
-        for yy in (-.35,.35):cube(name+' desk leg',(x+2+xx,y+1+yy,z+.46),(.09,.09,.92),wood)
-    cube(name+' desk paper',(x+2,y+.94,z+1.09),(.45,.38,.02),ivory)
-    cube(name+' chair seat',(x+2,y-.1,z+.48),(.72,.72,.12),wood)
-    cube(name+' chair back',(x+2,y-.5,z+.88),(.72,.09,.74),wood)
-    cube(name+' interior backlight',(x,y+d/2-.34,z+h*.65),(w*.65,.03,1.4),lightmat)
+    reference_fixture(fixture,x,y+.45,z)
+    if fixture=='east-lower-seat':
+        for dx in (-.85,.85):cube(name+' source vertical window',(x+dx,y+d/2-.34,z+3.4),(.65,.03,2.2),lightmat)
+    elif fixture=='east-middle-desk':
+        cube(name+' source vertical light',(x-3.7,y+d/2-.34,z+3),(.7,.03,3.3),lightmat)
     cube(name+' ceiling lip',(x,y+d/2-.5,z+h),(w,1,.2),trim)
 
 def auditorium(x,y,z):
@@ -180,27 +234,46 @@ def auditorium(x,y,z):
     for side in (-1,1):
         cube('Auditorium tall flank',(x+side*8.6,y+2,z+6.5),(.75,14,13),stone,True)
         for k in range(3):cube('Auditorium vertical light',(x+side*8.17,y+1+k*3,z+7),(.035,.3,5),lightmat)
-    for row in range(4):
+    for row in range(3):
         radius=3.7+row*1.05;vs=[];fs=[];n=24
         for i in range(n+1):
             a=math.radians(200+i*140/n)
             for r in (radius,radius+.65):vs.append((x+math.cos(a)*r,y+3+math.sin(a)*r,z+.18+row*.22))
-        for i in range(n):fs.append((i*2,i*2+1,i*2+3,i*2+2))
+        # The original has a central aisle, not uninterrupted concentric rings.
+        for i in range(n):
+            if abs((i+.5)/n-.5)>.085:fs.append((i*2,i*2+1,i*2+3,i*2+2))
         me=bpy.data.meshes.new('Auditorium semicircular seating');me.from_pydata(vs,[],fs);me.materials.append(roof)
         ob=bpy.data.objects.new('Auditorium semicircular seating',me);scene.collection.objects.link(ob)
         sol=ob.modifiers.new('Seating volume','SOLIDIFY');sol.thickness=.22;bpy.context.view_layer.objects.active=ob;bpy.ops.object.modifier_apply(modifier=sol.name)
     cube('Auditorium dais',(x,y+4,z+.16),(5.3,3.8,.32),trim)
-    cube('Auditorium lectern pedestal',(x,y+4,z+.77),(.55,.65,1.22),stone)
-    cube('Auditorium lectern top',(x,y+4,z+1.41),(1.7,.9,.12),wood)
-    vs=[];fs=[]
-    for i in range(25):
-        a=math.radians(30+i*12.5)
-        for r in (1.1,1.18):vs.append((x+math.cos(a)*r,y+8.63,z+8+math.sin(a)*r))
-    for i in range(24):fs.append((i*2,i*2+1,i*2+3,i*2+2))
-    me=bpy.data.meshes.new('Auditorium crescent');me.from_pydata(vs,[],fs);me.materials.append(brass)
-    ob=bpy.data.objects.new('Auditorium crescent emblem',me);scene.collection.objects.link(ob)
-    cube('Auditorium lintel',(x,y-3,z+13),(18,3,.5),stone)
-    cube('Auditorium roof terrace',(x,y+5.5,z+13.3),(18,7,.4),roof)
+    cube('Auditorium reference front table',(x,y+4,z+.76),(4.4,1,.42),trim)
+    for i in range(3):
+        cube('Auditorium rear chair back',(x+(i-1)*1.25,y+4.8,z+1.4),(.7,.18,.8),wood)
+        cube('Auditorium front table support',(x+(i-1)*1.25,y+4,z+.4),(.35,.6,.8),stone)
+    for ring in range(2):
+        vs=[];fs=[];radius=1.2-ring*.37
+        for i in range(48):
+            a=i*math.tau/48
+            for r in (radius,radius+.055):vs.append((x+math.cos(a)*r,y+1,z+8.3+math.sin(a)*r))
+        for i in range(48):fs.append((i*2,i*2+1,((i+1)%48)*2+1,((i+1)%48)*2))
+        me=bpy.data.meshes.new('Reference auditorium hanging ring');me.from_pydata(vs,[],fs);me.materials.append(brass)
+        ob=bpy.data.objects.new('Reference auditorium hanging ring '+str(ring),me);scene.collection.objects.link(ob);ob['sourceFeature']='auditorium-ring'
+    ob=cube('Reference auditorium pendant',(x,y+1,z+8.5),(.065,.065,3.7),brass);ob['sourceFeature']='auditorium-pendant'
+    cube('Auditorium weathered roof terrace',(x,y+1,z+13.3),(18,16,.4),roof)
+    # Broad roof head and two projecting prongs visible in the a03 atlas.
+    silhouette=[(-5.8,-9),(-5.8,-3.5),(-7,-3.5),(-7,2.5),(-5.4,4.3),(5.4,4.3),(7,2.5),(7,-3.5),(5.8,-3.5),(5.8,-9),(1.1,-9),(1.1,-3.5),(-1.1,-3.5),(-1.1,-9)]
+    n=len(silhouette);vs=[(x+xx,y+yy,z+zz) for zz in (13.4,14.3) for xx,yy in silhouette]
+    fs=[tuple(range(n-1,-1,-1)),tuple(range(n,n*2))]+[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
+    me=bpy.data.meshes.new('Auditorium reference roof silhouette');me.from_pydata(vs,[],fs);me.materials.append(stone)
+    uv=me.uv_layers.new()
+    for face in me.polygons:
+        for li in face.loop_indices:
+            v=me.vertices[me.loops[li].vertex_index].co
+            uv.data[li].uv=(.700+(v.x-x+7)/14*.027,.870+(v.y-y+9)/14*.04)
+    ob=bpy.data.objects.new('Auditorium reference roof silhouette',me);scene.collection.objects.link(ob)
+    for side in (-1,1):
+        cube('Auditorium rear roof block',(x+side*3.5,y+7,z+14.6),(5.5,2.7,1.1),stone)
+        for yy in (-7,5):cube('Auditorium brass roof pin',(x+side*8,y+yy,z+14),(.12,.12,1.3),brass)
     rail('Auditorium front rail',x,y-8.5,z,16)
 
 def building(name,x,y,w,d,h,towers=True):
@@ -232,12 +305,37 @@ def building(name,x,y,w,d,h,towers=True):
 x=-20;y=16;z=.45
 floor('Central foundation plinth',x,y,z,50,33)
 stair('Central entrance',x,-3,0,12,7,.45)
-auditorium(x,y-3,z)
-cube('Auditorium wallwash',(x,y+5.65,z+6),(5.8,.02,7),lightmat)
+auditorium(x,y-3,z+6.4)
+cube('Auditorium wallwash',(x,y+5.65,z+12.4),(5.8,.02,7),lightmat)
+# The hall sits above a visible strip of narrow windows, not at ground level.
+cube('Auditorium lower rear volume',(x,y+3,z+3.2),(17,10,6.4),stone,True)
+cube('Auditorium lower facade sill',(x,y-8.7,z+.75),(17,.7,1.5),stone)
+cube('Auditorium lower facade lintel',(x,y-8.7,z+5.5),(17,.7,1.8),stone)
+for i in range(7):
+    wx=x-7.2+i*2.4
+    cube('Auditorium lower window '+str(i),(wx,y-8.67,z+3.25),(.85,.08,2.9),darktop)
+    cube('Auditorium lower window pier',(wx+1.2,y-8.7,z+3.25),(1.4,.75,3.5),stone,True)
+    cube('Auditorium lower window sill',(wx,y-9.1,z+2.1),(.85,.2,.15),trim)
 for side in (-1,1):
     sx=x+side*18
-    for level in (0,6.4,12.8):room('Central '+('west' if side<0 else 'east')+' room',sx,y+2,z+level,12,12,5.7)
-    stepped_tower('Central '+('west' if side<0 else 'east'),sx+side*4,y+19,z,7.5,9,33 if side<0 else 30)
+    wing='Central '+('west' if side<0 else 'east')
+    levels=[(6.4,'west-seat')] if side<0 else [(6.4,'east-lower-seat'),(12.8,'east-middle-desk'),(19.2,'east-upper-long-fixture')]
+    for level,kind in levels:room(wing+' '+kind+' room',sx,y+2,z+level,11,12,5.7,kind)
+    # A single tall, vertically channelled tower encloses each cutaway wing.
+    # Hidden-side adaptation: retain a real gallery door through the thick
+    # tower core at the first accessible room level.
+    cube(wing+' Stepped tower rear lower',(sx,y+11,z+3.2),(12,5,6.4),stone,True)
+    cube(wing+' Stepped tower rear upper',(sx,y+11,z+21.3),(12,5,23.8),stone,True)
+    for dx in (-1,1):cube(wing+' rear door jamb',(sx+dx*3.95,y+11,z+7.9),(4.1,5,3),stone,True)
+    cube(wing+' Stepped tower lower closed facade',(sx,y-4.1,z+3.1),(11,.75,6.2),stone,True)
+    cap=12.8 if side<0 else 25.6
+    cube(wing+' Stepped tower closed upper',(sx,y+2,z+(cap+33.2)/2),(11,12,33.2-cap),stone,True)
+    cube(wing+' vertical recessed channel',(sx,y-4.08,z+(cap+33.2)/2),(1.05,.05,33.2-cap),joint)
+    for xx in (-1,1):cube(wing+' vertical projecting blade',(sx+xx*2.6,y-4.6,z+(cap+33.2)/2),(3.9,1.6,33.2-cap),stone)
+    cube(wing+' notched roof west',(sx-3.1,y+2,z+33.35),(4.8,12,.3),stone)
+    cube(wing+' notched roof east',(sx+3.1,y+2,z+33.35),(4.8,12,.3),stone)
+    for level in range(1,28):
+        if level*1.2<6.4 or level*1.2>cap:cube(wing+' Facade course',(sx,y-4.94,z+level*1.2),(11,.025,.025),joint)
     floor('Rear passage upper landing',sx,y+11,z+6.4,12,6)
     cube('Rear passage outer wall',(sx+side*6.3,y+6,z+3.2),(.45,20,6.4),stone,True)
     rail('Rear passage landing rail',sx,y+8.8,z+6.4,10)
@@ -260,35 +358,50 @@ for x,y in [(-55,30),(20,34),(91,-22)]:cube('Reference stone monolith',(x,y,heig
 # Fir prototype matches the faceted foliage and taper in the official sandtable.
 parts=[]
 bpy.ops.mesh.primitive_cylinder_add(vertices=7,radius=.18,depth=2.8,location=(0,0,1.4));parts.append(bpy.context.object);parts[-1].data.materials.append(trunk)
-for level in range(11):
-    radius=2.0*(1-level/12)**.85
-    bpy.ops.mesh.primitive_cone_add(vertices=14,radius1=radius,radius2=radius*.12,depth=.9,location=(0,0,1.15+level*.53))
+for level in range(7):
+    radius=2.1*(1-level/7.6)**.85
+    bpy.ops.mesh.primitive_cone_add(vertices=21,radius1=radius,radius2=radius*.10,depth=1.45,location=(0,0,1.25+level*.82))
     for v in bpy.context.object.data.vertices:
-        a=math.atan2(v.co.y,v.co.x);factor=1+.16*math.sin(a*5+level*.5)
+        a=math.atan2(v.co.y,v.co.x);factor=1+.18*math.sin(a*7+level*.8)
         v.co.x*=factor;v.co.y*=factor
-        if v.co.z<0:v.co.z+=.15*math.cos(a*7)
+        if v.co.z<0:v.co.z+=.24*math.cos(a*7+level*.8)
     parts.append(bpy.context.object);parts[-1].data.materials.append(greens[0])
 bpy.ops.object.select_all(action='DESELECT')
 for ob in parts:ob.select_set(True)
 bpy.context.view_layer.objects.active=parts[0];bpy.ops.object.join();prototype=bpy.context.object;prototype.name='Fir prototype'
 bpy.context.scene.cursor.location=(0,0,0);bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+canopies=[]
+for color in greens:
+    data=prototype.data.copy();data.materials[1]=color;canopies.append(data)
 for i in range(1050):
     x=random.uniform(-153,153);y=random.uniform(-72,72)
     if any(abs(x-bx)<bw and abs(y-by)<bd for bx,by,bw,bd in [(-20,16,30,23),(66,17,18,18),(109,42,14,13),(-105,2,18,16),(40,-40,19,15)]):continue
     if -24<x<-9 and 30<y<46:continue
     if abs(y-(-19-.09*x))<4 or (abs(x+20)<5 and -15<y<45):continue
-    ob=bpy.data.objects.new('Fir %04d'%i,prototype.data);scene.collection.objects.link(ob)
-    ob.location=(x,y,height(x,y));sc=random.uniform(.72,1.35);ob.scale=(sc,sc,sc*random.uniform(.95,1.25));ob.rotation_euler.z=random.random()*math.tau
+    ob=bpy.data.objects.new('Fir %04d'%i,random.choices(canopies,weights=[.62,.24,.11,.03])[0]);scene.collection.objects.link(ob)
+    ob.location=(x,y,height(x,y));sc=random.uniform(.95,1.7);ob.scale=(sc,sc,sc*random.uniform(.95,1.25));ob.rotation_euler.z=random.random()*math.tau
 bpy.data.objects.remove(prototype,do_unlink=True)
-for i in range(45):
-    x=random.uniform(-155,155);y=random.uniform(51,76)
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2,radius=1,location=(x,y,height(x,y)+1.2))
-    ob=bpy.context.object;ob.name='Snow granite ridge';ob.scale=(random.uniform(4,10),random.uniform(3,8),random.uniform(3,10))
-    bpy.ops.object.transform_apply(location=False,rotation=False,scale=True);ob.data.materials.append(rock);ob.data.materials.append(snow)
-    for p in ob.data.polygons:p.material_index=1 if p.normal.z>.25 else 0
+# Continuous mountain front: official cliff/snow texture, no generic spheres.
+mountain=mat('Original a01 cliff and snow',(1,1,1))
+tex=mountain.node_tree.nodes.new('ShaderNodeTexImage');tex.image=bpy.data.images.load(os.path.join(ROOT,'public/assets/all/m_s08_hddtc_background_a01_manual__0e4ca30c84.webp'),check_existing=True)
+mountain.node_tree.links.new(tex.outputs['Color'],next(n for n in mountain.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Base Color'])
+vs=[];fs=[];cols=128;rows=12
+for j in range(rows+1):
+    t=j/rows;yy=50+30*t
+    for i in range(cols+1):
+        xx=-160+320*i/cols
+        vs.append((xx,yy,height(xx,yy)))
+for j in range(rows):
+    for i in range(cols):
+        a=j*(cols+1)+i;fs.extend([(a,a+1,a+cols+2),(a,a+cols+2,a+cols+1)])
+me=bpy.data.meshes.new('Reference continuous northern massif');me.from_pydata(vs,[],fs);me.materials.append(mountain);uv=me.uv_layers.new()
+for p in me.polygons:
+    for li in p.loop_indices:
+        v=me.vertices[me.loops[li].vertex_index].co;uv.data[li].uv=((v.x+160)/320,.72+(v.y-50)/30*.28)
+ob=bpy.data.objects.new('Reference continuous northern massif',me);scene.collection.objects.link(ob);ob['sourceFeature']='northern-massif'
 
-bpy.ops.object.camera_add(location=(64,-102,79));camera=bpy.context.object;camera.name='World overview'
-camera.rotation_euler=(Vector((-20,16,11))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=140;scene.camera=camera
+bpy.ops.object.camera_add(location=(2,-105,72));camera=bpy.context.object;camera.name='World overview'
+camera.rotation_euler=(Vector((-20,16,13))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=112;scene.camera=camera
 bpy.ops.object.light_add(type='SUN',location=(0,-30,80));sun=bpy.context.object;sun.name='Overcast winter sun';sun.data.energy=1.8;sun.data.angle=math.radians(16);sun.rotation_euler=(.4,-.5,-.3)
 for lx,ly,lz in [(-20,22,8),(-38,21,3.5),(-2,21,10)]:
     bpy.ops.object.light_add(type='AREA',location=(lx,ly,lz));light=bpy.context.object;light.name='Interior indirect light';light.data.energy=130;light.data.color=(.73,.90,.72);light.data.shape='DISK';light.data.size=7
@@ -301,8 +414,8 @@ scene.render.image_settings.file_format='PNG'
 
 os.makedirs(os.path.join(ROOT,'public/models'),exist_ok=True)
 with open(os.path.join(ROOT,'public/data/world.json'),'w',encoding='utf-8') as f:
-    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'spawn':[0,2,35], 'model':'models/tigers-world.glb','revision':2,'sourceScope':'Reference-guided visible front; adapted hidden surfaces'},f,ensure_ascii=False)
-bpy.ops.export_scene.gltf(filepath=os.path.join(ROOT,'public/models/tigers-world.glb'),export_format='GLB',use_active_scene=True,export_cameras=False,export_lights=False)
+    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'spawn':[0,2,35], 'model':'models/tigers-world.glb','revision':3,'sourceScope':'Central fixtures and visible openings traced from a03; remaining world still reference-guided adaptation'},f,ensure_ascii=False)
+bpy.ops.export_scene.gltf(filepath=os.path.join(ROOT,'public/models/tigers-world.glb'),export_format='GLB',use_active_scene=True,export_cameras=False,export_lights=False,export_extras=True)
 
 # A second Blender scene preserves all original draw meshes and their UVs.
 original=bpy.data.scenes.get('Original chapter 104 sandtable') or bpy.data.scenes.new('Original chapter 104 sandtable');bpy.context.window.scene=original
@@ -324,6 +437,8 @@ for draw in data[19]['draws']:
         for li,c in zip(poly.loop_indices,face):uv.data[li].uv=draw['uv'][c[1]]
     ob=bpy.data.objects.new(draw['name'],me);original.collection.objects.link(ob)
 bpy.context.window.scene=scene
+inspection=bpy.data.images.get('Reference inspection')
+if inspection:bpy.data.images.remove(inspection)
 bpy.ops.file.pack_all()
 for area in bpy.context.screen.areas:
     if area.type=='VIEW_3D':

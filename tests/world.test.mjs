@@ -18,9 +18,49 @@ test('walking follows the adapted staircase ramp',()=>{
   const w={bounds:{minX:-155,maxX:155,minZ:-75,maxZ:75},walkSurfaces:[{x:0,z:0,w:4,d:8,y:1,slopeZ:.5}]};
   const p=constrainPosition({x:0,z:1,y:3.2},w,true);assert.equal(p.y,3.3);
 });
+
+test('walking follows the textured northern massif instead of sinking beneath it',()=>{
+  assert.ok(Math.abs(terrainHeight(0,-80)-29.555555555555557)<1e-9);
+  assert.equal(terrainHeight(0,-48),1.6666666666666665);
+});
 test('rebuilt castle exports auditorium, stepped towers, furniture and adapted back passages',async()=>{
   const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));const names=j.nodes.map(n=>n.name||'').join('\n');
-  for(const feature of ['Auditorium','Stepped tower','Rear passage','Stair flight','Room bed','Facade course'])assert.ok(names.includes(feature),`Missing ${feature}`);
+  for(const feature of ['Auditorium','Stepped tower','Rear passage','Stair flight','Facade course'])assert.ok(names.includes(feature),`Missing ${feature}`);
+});
+
+test('central cutaway rooms preserve the distinct source fixtures instead of duplicated beds',async()=>{
+  const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));
+  const items=j.nodes.filter(n=>n.extras?.referenceFixture);
+  assert.equal(items.length,4,'Source shows one west opening and three east openings');
+  assert.deepEqual(items.map(n=>n.extras.referenceFixture).sort(),['east-lower-seat','east-middle-desk','east-upper-long-fixture','west-seat']);
+  assert.ok(items.every(n=>n.extras.sourceTexture==='assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp'&&n.extras.sourcePixels?.length===4));
+  assert.equal(j.nodes.filter(n=>/Central .* room floor$/.test(n.name||'')).length,4);
+  const east=items.filter(n=>n.extras.referenceFixture.startsWith('east'));
+  assert.equal(new Set(east.map(n=>n.extras.shape)).size,3,'Distinct rooms must not reuse the same furniture shape');
+});
+
+test('central hall preserves the visible lower window band, split roof and tower channels',async()=>{
+  const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));const names=j.nodes.map(n=>n.name||'');
+  assert.equal(names.filter(n=>/^Auditorium lower window \d+$/.test(n)).length,7);
+  assert.ok(names.some(n=>n.includes('Auditorium reference roof silhouette')));
+  assert.equal(names.filter(n=>/^Central .* vertical recessed channel$/.test(n)).length,2);
+});
+
+test('auditorium uses the source hanging circular emblem instead of an invented crescent',async()=>{
+  const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));
+  const rings=j.nodes.filter(n=>n.extras?.sourceFeature==='auditorium-ring');
+  assert.equal(rings.length,2);
+  for(const n of rings){const p=j.meshes[n.mesh].primitives[0];assert.ok(j.accessors[p.attributes.POSITION].count>=90);}
+  assert.ok(j.nodes.some(n=>n.extras?.sourceFeature==='auditorium-pendant'));
+});
+
+test('northern mountains reuse the original cliff atlas on continuous geometry, not generic boulders',async()=>{
+  const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));
+  const n=j.nodes.find(n=>n.extras?.sourceFeature==='northern-massif');assert.ok(n);
+  const p=j.meshes[n.mesh].primitives[0];assert.ok(j.accessors[p.attributes.POSITION].count>400);assert.ok(p.attributes.TEXCOORD_0!==undefined);
+  const mat=j.materials[p.material],t=j.textures[mat.pbrMetallicRoughness.baseColorTexture.index];
+  const i=j.images[t.extensions?.EXT_texture_webp?.source??t.source];assert.ok(i.name.includes('background_a01'));
+  assert.equal(j.nodes.filter(n=>/Snow granite ridge/.test(n.name||'')).length,0);
 });
 test('collision ignores walls above the walking floor but keeps same-level walls solid',()=>{
   const upper=[{x:0,z:0,w:4,d:1,yMin:6,height:5}];

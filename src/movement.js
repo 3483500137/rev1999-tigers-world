@@ -1,6 +1,8 @@
 export function terrainHeight(x,z) {
   const y=-z, ridge=Math.max(0,(y-42)/36);
-  return ridge*(10+7*Math.sin(x*.035)**2)+.45*Math.sin(x*.025)*Math.cos(y*.06);
+  const t=Math.max(0,Math.min(1,(y-48)/32));
+  const crest=19+15*Math.sin(x*.039)**2+6*Math.sin(x*.12)**2;
+  return ridge*(10+7*Math.sin(x*.035)**2)+.45*Math.sin(x*.025)*Math.cos(y*.06)+Math.sin(t*Math.PI/2)*crest;
 }
 export function canOccupy(x,z,colliders,radius=.65,feetY=null) {
   return !colliders.some(b => {
