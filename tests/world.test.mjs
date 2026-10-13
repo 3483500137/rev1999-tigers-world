@@ -168,3 +168,15 @@ test('masonry uses the inspected grey wall region rather than the warm roof patc
   }
   assert.ok(points>1000,'Inspect the exported geometry, not just metadata');
 });
+
+test('bed linen does not intersect its mattress and create invented white holes',async()=>{
+  const b=await readFile('public/models/tigers-world.glb'),j=await exportedScene(),binStart=28+b.readUInt32LE(12);
+  const covers=j.nodes.filter(n=>n.name?.startsWith('Observed creased bed linen'));assert.equal(covers.length,4);
+  for(const n of covers){
+    const a=j.accessors[j.meshes[n.mesh].primitives[0].attributes.POSITION],v=j.bufferViews[a.bufferView],offset=binStart+(v.byteOffset||0)+(a.byteOffset||0);
+    for(let i=0;i<a.count;i++){
+      const at=offset+i*(v.byteStride||12),y=b.readFloatLE(at+4),z=b.readFloatLE(at+8);
+      if(z<=2.115)assert.ok(y>.8351,`${n.name} intersects mattress at ${y},${z}`);
+    }
+  }
+});

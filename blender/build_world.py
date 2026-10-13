@@ -168,9 +168,9 @@ def bed(x,y,z,source_pixels,angle=0,teal=False,source='m_s08_hddtc_background_a0
     # Folded fabric has shallow creases and an irregular hanging foot edge.
     vs=[];fs=[];cols=12;rows=12
     for j in range(rows+1):
-        yy=-2.06+j*3.0/rows
+        yy=-2.20 if j==0 else -2.06+j*3.0/rows
         for i in range(cols+1):
-            xx=-1.58+i*3.16/cols;zz=.89+.065*math.sin(i*2.1+j*.45)
+            xx=-1.58+i*3.16/cols;zz=.99+.065*math.sin(i*2.1+j*.45)
             if j==0:zz-=.18+.10*math.sin(i*1.8)
             vs.append((xx,yy,zz))
     for j in range(rows):
