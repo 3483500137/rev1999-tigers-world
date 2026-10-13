@@ -4,7 +4,8 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 const run=promisify(execFile);
 const base='https://3483500137.github.io/rev1999-tigers-world/';
-async function get(path){try{const {stdout}=await run('curl',['--fail','--silent','--show-error','--location','--retry','1','--connect-timeout','10','--max-time','55',new URL(path,base).href],{encoding:'buffer',maxBuffer:10e6});console.log(`Checked ${path||'homepage'}`);return stdout;}catch(e){throw Error(String(e.stderr||e.message));}}
+const checkId=Date.now().toString();
+async function get(path){try{const url=new URL(path,base);url.searchParams.set('verify',checkId);const {stdout}=await run('curl',['--fail','--silent','--show-error','--location','--retry','1','--connect-timeout','10','--max-time','55',url.href],{encoding:'buffer',maxBuffer:10e6});console.log(`Checked ${path||'homepage'}`);return stdout;}catch(e){throw Error(String(e.stderr||e.message));}}
 const html=(await get('')).toString();if(!html.includes('老虎的金黄'))throw Error('Unexpected homepage');
 const assets=[...html.matchAll(/(?:src|href)="(\.\/assets\/[^" ]+)"/g)].map(m=>m[1]);
 await Promise.all(assets.map(get));
