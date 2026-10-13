@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1c2829"><meta name="description" content="老虎的金黄 · Blender 重建的重返未来 1999 场景，支持步行、自由飞行和原始沙盘对照。"><title>老虎的金黄 · 自由漫游</title></head>
+<body>
+<canvas id="world" aria-label="老虎的金黄三维场景"></canvas>
+<header><a class="brand" href="#">REVERSE: 1999 <span>CHAPTER IV</span></a><div class="actions"><button id="source-mode">原版沙盘</button><button id="fullscreen">全屏</button><button id="help-toggle">操作指南</button></div></header>
+<div id="loading" role="status"><span class="loading-mark">IV</span><h1>老虎的金黄</h1><p id="load-status">正在进入林地与城堡之间…</p></div>
+<section class="chapter-heading"><span class="eyebrow">1913 · EL ORO DE LOS TIGRES</span><h1>老虎的金黄</h1><p>让视线越过沙盘，走入这一年的风景。</p></section>
+<aside id="help" hidden><button id="help-close" aria-label="关闭操作指南">×</button><h2>沿着道路，自由探索</h2><p>总览：拖动环视 · 滚轮缩放 · 右键平移</p><p>步行 / 飞行：W A S D 移动 · 鼠标环视<br>Shift 加速 · 飞行时 E 上升 / Q 下降<br>Esc 释放鼠标 · R 返回初始视角 · H 隐藏界面</p><p>手机：左侧方向键移动 · 右侧拖动环视</p><p class="note">大世界是依据参考沙盘重建的立体空间；“原版沙盘”保留原始贴图、UV 与 23 幕场景。建筑背面与地形高度为复建内容。</p><a href="https://github.com/VioletWilde/1999-demo" target="_blank" rel="noreferrer">查看参考项目 ↗</a></aside>
+<aside class="map"><canvas id="minimap" width="300" height="150" aria-label="探索位置地图"></canvas><div><span id="coordinates">X 0 · Z 0</span><span id="mode-label">总览</span></div></aside>
+<div id="reticle" hidden>+</div><button id="capture" hidden>点击场景继续环视</button>
+<section class="bottom"><div class="episode"><span class="eyebrow" id="episode-number">04 / 01</span><h2 id="episode-title">旧雨伞</h2><p id="episode-description"></p><div class="episode-buttons"><button id="prev" aria-label="上一幕">←</button><select id="episodes" aria-label="选择章节片段"></select><button id="next" aria-label="下一幕">→</button></div></div><div class="navigation"><p class="eyebrow">选择你的视角</p><div class="mode-buttons"><button data-mode="overview" class="active">总览</button><button data-mode="walk">进入林地</button><button data-mode="fly">自由飞行</button></div><div class="landmarks"><button data-place="castle">城堡</button><button data-place="east">东侧居所</button><button data-place="forest">林间道路</button><button id="reset">返回起点 ↺</button></div></div></section>
+<div id="touch-pad" hidden><button data-key="KeyW" aria-label="向前">↑</button><div><button data-key="KeyA" aria-label="向左">←</button><button data-key="KeyS" aria-label="向后">↓</button><button data-key="KeyD" aria-label="向右">→</button></div></div><div id="touch-height" hidden><button data-key="KeyE">升</button><button data-key="KeyQ">降</button></div>
+<button id="restore-ui" hidden>显示界面</button><p id="toast" role="status" hidden></p>
+<script type="module" src="/src/main.js"></script>
+</body></html>
