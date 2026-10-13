@@ -15,7 +15,9 @@ a grant of commercial rights. This repository does not claim ownership of the
 original game art or grant a sublicense to it.
 
 The explorable geometry is reconstructed from the visible reference, not
-extracted original game geometry. Its unseen surfaces and terrain heights are
-interpretive reconstructions. No image-generation service was used.
+extracted original game geometry. Visible architectural features are reference-guided;
+unseen surfaces, rear passages and terrain heights are adapted designs explicitly
+requested for free exploration. Pixel-perfect or face-for-face fidelity is not claimed.
+No image-generation service was used; the original atlas patch is reused through UVs.
 
 Each imported original texture has a recorded checksum in public/data/sources.json.

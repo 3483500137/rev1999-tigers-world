@@ -1,18 +1,22 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {canOccupy,constrainPosition,terrainHeight} from './movement.js';
 import './style.css';
 
 const $=s=>document.querySelector(s), canvas=$('#world');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.75)); renderer.outputColorSpace=THREE.SRGBColorSpace;
-renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
-const scene=new THREE.Scene();scene.background=new THREE.Color('#99adb0');scene.fog=new THREE.FogExp2('#99adb0',.0028);
-const camera=new THREE.PerspectiveCamera(58,1,.1,650);camera.position.set(45,48,78);
-const orbit=new OrbitControls(camera,canvas);orbit.target.set(-20,5,-10);orbit.enableDamping=true;orbit.minDistance=5;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
-const hemi=new THREE.HemisphereLight('#d8e5ec','#6b725a',2.5);scene.add(hemi);
-const sun=new THREE.DirectionalLight('#f3ecd5',2.1);sun.position.set(-70,100,60);scene.add(sun);
+renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=1.0;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();scene.background=new THREE.Color('#aebfc2');scene.fog=new THREE.FogExp2('#aebfc2',.0019);
+const camera=new THREE.PerspectiveCamera(48,1,.1,650);camera.position.set(50,52,86);
+const orbit=new OrbitControls(camera,canvas);orbit.target.set(-20,11,-16);orbit.enableDamping=true;orbit.minDistance=5;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
+const hemi=new THREE.HemisphereLight('#d8e5ec','#45543b',1.65);scene.add(hemi);
+const sun=new THREE.DirectionalLight('#e3e9d8',2.3);sun.position.set(-70,100,60);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-95,right:95,top:95,bottom:-95,near:1,far:280});sun.shadow.bias=-.0003;sun.shadow.normalBias=.035;scene.add(sun);
+for(const [x,y,z] of [[-20,8,-22],[-38,3.5,-21],[-2,10,-21]]){const light=new THREE.PointLight('#cee4bd',30,15,2);light.position.set(x,y,z);scene.add(light);}
 let world,chapters,worldGroup,originalGroup=new THREE.Group(),sourceMode=false,mode='overview',episode=0,ready=false;
 let yaw=0,pitch=0,uiHidden=false,lastPointer=null,transition=null;
 const keys=new Set(),clock=new THREE.Clock(),up=new THREE.Vector3(0,1,0),pointer=new THREE.Vector2();
@@ -23,15 +27,26 @@ addEventListener('resize',resize);resize();
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;setTimeout(()=>$('#toast').hidden=true,3500);}
 async function json(path){const r=await fetch(path);if(!r.ok)throw Error(`无法读取 ${path} (${r.status})`);return r.json();}
 function batchTrees(root){
-  const batches=new Map();const remove=[];root.updateMatrixWorld(true);
-  root.traverse(o=>{if(o.isMesh && o.parent?.name.startsWith('Fir ')){const k=o.geometry.uuid+'|'+o.material.uuid;if(!batches.has(k))batches.set(k,[]);batches.get(k).push(o);remove.push(o);}});
-  for(const objects of batches.values()){const first=objects[0],mesh=new THREE.InstancedMesh(first.geometry,first.material,objects.length);objects.forEach((o,i)=>mesh.setMatrixAt(i,o.matrixWorld));mesh.instanceMatrix.needsUpdate=true;mesh.name='Instanced fir forest';root.add(mesh);}
+  const batches=new Map();const remove=[];root.updateMatrixWorld(true);const inverse=new THREE.Matrix4().copy(root.matrixWorld).invert();
+  root.traverse(o=>{if(o.isMesh && /^Fir[ _]/.test(o.parent?.name||'')){const k=o.geometry.uuid+'|'+o.material.uuid;if(!batches.has(k))batches.set(k,[]);batches.get(k).push(o);remove.push(o);}});
+  for(const objects of batches.values()){const first=objects[0],mesh=new THREE.InstancedMesh(first.geometry,first.material,objects.length);objects.forEach((o,i)=>mesh.setMatrixAt(i,new THREE.Matrix4().multiplyMatrices(inverse,o.matrixWorld)));mesh.instanceMatrix.needsUpdate=true;mesh.name='Instanced fir forest';root.add(mesh);}
   remove.forEach(o=>o.removeFromParent());
+  const staticBatches=new Map();root.updateMatrixWorld(true);
+  root.traverse(o=>{if(!o.isMesh||o.isInstancedMesh||o.isSkinnedMesh||Array.isArray(o.material)||o.material.transparent)return;
+    const key=o.material.uuid+'|'+Object.keys(o.geometry.attributes).sort().join(',');
+    if(!staticBatches.has(key))staticBatches.set(key,[]);staticBatches.get(key).push(o);
+  });
+  for(const objects of staticBatches.values()){
+    if(objects.length<2)continue;
+    const parts=objects.map(o=>{const g=o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone();g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverse,o.matrixWorld));return g;});
+    const geometry=mergeGeometries(parts,false);parts.forEach(g=>g.dispose());if(!geometry)continue;
+    const mesh=new THREE.Mesh(geometry,objects[0].material);mesh.name='Batched reference architecture';root.add(mesh);objects.forEach(o=>o.removeFromParent());
+  }
 }
 async function start(){
   [world,chapters]=await Promise.all([json('data/world.json'),json('data/chapter-104.json')]);
   const gltf=await new GLTFLoader().loadAsync(world.model,e=>{if(e.total)$('#load-status').textContent=`正在展开林地… ${Math.round(e.loaded/e.total*100)}%`;});
-  worldGroup=gltf.scene;batchTrees(worldGroup);scene.add(worldGroup);
+  worldGroup=gltf.scene;batchTrees(worldGroup);worldGroup.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;if(o.material.map)o.material.map.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);}});scene.add(worldGroup);
   chapters.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`${String(s.number).padStart(2,'0')} · ${s.title}`;$('#episodes').append(o);});
   await changeEpisode(0);ready=true;$('#loading').hidden=true;document.body.classList.add('ready');
 }
@@ -62,7 +77,7 @@ function setMode(next,lock=false){
   mode=next;transition=null;keys.clear();orbit.enabled=mode==='overview';
   if(mode!=='overview'){
     if(camera.position.y>35 || camera.position.length()>220)camera.position.set(0,mode==='walk'?2:20,35);
-    if(mode==='walk')camera.position.y=terrainHeight(camera.position.x,camera.position.z)+1.8;
+    if(mode==='walk')camera.position.y=constrainPosition(camera.position,world,true).y;
     camera.lookAt(-20,mode==='walk'?3:15,-10);directionFromCamera();
     if(lock && matchMedia('(pointer:fine)').matches)canvas.requestPointerLock?.()?.catch(()=>{});
   }else{document.exitPointerLock?.();orbit.target.set(-20,4,-10);}
@@ -77,13 +92,13 @@ function updateUi(){
 }
 async function toggleSource(value=!sourceMode){
   sourceMode=value;setMode('overview');worldGroup.visible=!value;originalGroup.visible=value;
-  scene.background.set(value?'#1c292b':'#99adb0');scene.fog=value?null:new THREE.FogExp2('#99adb0',.0028);
+  scene.background.set(value?'#1c292b':'#aebfc2');scene.fog=value?null:new THREE.FogExp2('#aebfc2',.0019);
   if(value){orbit.maxPolarAngle=Math.PI;await changeEpisode(episode);}else{orbit.maxPolarAngle=Math.PI*.49;resetView();}
   updateUi();
 }
 function resetView(){
   transition=null;if(sourceMode){changeEpisode(episode);return;}
-  if(mode==='overview'){camera.position.set(45,48,78);orbit.target.set(-20,5,-10);orbit.update();}
+  if(mode==='overview'){camera.position.set(50,52,86);orbit.target.set(-20,11,-16);orbit.update();}
   else{camera.position.set(0,mode==='walk'?2:20,35);camera.lookAt(-20,3,-10);directionFromCamera();}
 }
 function jump(place){
@@ -120,15 +135,15 @@ function move(dt){
   if(mode==='fly')delta.y=(Number(keys.has('KeyE'))-Number(keys.has('KeyQ')))*speed;
   let next=camera.position.clone().add(delta);
   if(mode==='walk'){
-    if(!canOccupy(next.x,camera.position.z,world.colliders))next.x=camera.position.x;
-    if(!canOccupy(next.x,next.z,world.colliders))next.z=camera.position.z;
+    if(!canOccupy(next.x,camera.position.z,world.colliders,.65,camera.position.y-1.8))next.x=camera.position.x;
+    if(!canOccupy(next.x,next.z,world.colliders,.65,camera.position.y-1.8))next.z=camera.position.z;
   }
   const p=constrainPosition(next,world,mode==='walk');camera.position.set(p.x,p.y,p.z);
 }
 const map=$('#minimap'),mc=map.getContext('2d');let mapTick=0;
 function drawMap(){
   mc.clearRect(0,0,300,150);mc.fillStyle='#233b34';mc.fillRect(0,0,300,150);mc.fillStyle='#b6c5c3';mc.fillRect(0,0,300,31);mc.strokeStyle='#a6aa80';mc.lineWidth=3;mc.beginPath();mc.moveTo(10,115);mc.lineTo(60,97);mc.lineTo(140,85);mc.lineTo(212,98);mc.lineTo(292,125);mc.stroke();
-  for(const [x,z,w,d] of [[-20,-16,32,23],[66,-17,22,18],[109,-42,15,12],[-105,-2,21,17]]){mc.fillStyle='#d8d4bb';mc.fillRect((x+160)/320*300-w/320*150,(z+80)/160*150-d/160*75,w/320*300,d/160*150);}
+  for(const [x,z,w,d] of [[-20,-16,50,33],[66,-17,22,18],[109,-42,15,12],[-105,-2,21,17]]){mc.fillStyle='#d8d4bb';mc.fillRect((x+160)/320*300-w/320*150,(z+80)/160*150-d/160*75,w/320*300,d/160*150);}
   const x=(camera.position.x+160)/320*300,z=(camera.position.z+80)/160*150;mc.fillStyle='#f3d9a1';mc.beginPath();mc.arc(x,z,3.5,0,Math.PI*2);mc.fill();mc.strokeStyle='#f3d9a1';mc.beginPath();mc.moveTo(x,z);mc.lineTo(x-Math.sin(yaw)*10,z-Math.cos(yaw)*10);mc.stroke();
   $('#coordinates').textContent=`X ${camera.position.x.toFixed(0)} · Z ${camera.position.z.toFixed(0)}`;
 }
