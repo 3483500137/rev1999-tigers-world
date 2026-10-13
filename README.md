@@ -47,6 +47,8 @@ exec(compile(open(p, encoding='utf-8').read(), p, 'exec'), {'__file__': p})
 
 更新后运行 `node scripts/publish-pages.mjs` 可构建并提交新的 `gh-pages` 发布分支。该脚本仅更新已配置的 `origin`，不会创建新仓库。
 
+需要 Node.js、Git 及已登录的 GitHub CLI。若 Git 连接不可用，可以先运行 `npm run build`，再执行 `node scripts/publish-api.mjs dist gh-pages`，通过 GitHub API 发布；此备用脚本的目标固定为本项目仓库。
+
 ## 来源与许可
 
 来源固定在提交 [`1d83ddc454c9c7c193e4c458412db42bfc5d8031`](https://github.com/VioletWilde/1999-demo/tree/1d83ddc454c9c7c193e4c458412db42bfc5d8031)，仅提取第四章相关资源。`public/data/sources.json` 记录每张贴图的路径、大小和 SHA-256。

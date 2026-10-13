@@ -14,6 +14,6 @@ try {
   git(['add','.'],dir);git(['commit','-m','Publish static world'],dir);
   git(['remote','add','origin',remote],dir);
   // A new orphan snapshot contains generated artifacts only; force applies solely to gh-pages.
-  git(['push','--force','origin','HEAD:gh-pages'],dir);
+  git(['-c','credential.helper=','-c','credential.helper=!gh auth git-credential','-c','http.sslVerify=true','-c','http.version=HTTP/1.1','-c','http.lowSpeedLimit=1024','-c','http.lowSpeedTime=30','push','--force','origin','HEAD:gh-pages'],dir);
   console.log('Published generated static site to gh-pages.');
 } finally {await rm(dir,{recursive:true,force:true});}
