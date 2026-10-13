@@ -58,17 +58,39 @@ for m,(px,py) in zip(greens,[(731,962),(630,701),(660,575),(1280,981)]):
 
 colliders=[]
 walk_surfaces=[]
+landmarks=[{'id':'central-auditorium','x':-20,'z':-16,'w':50,'d':33}]
+
+def tiled_stone(o,size):
+    """Repeat the unchanged atlas patch per physical panel, not once per tower.
+
+    Explicit tessellation keeps identical UVs in Blender and exported glTF;
+    glTF cannot export arbitrary Blender shader-node coordinate arithmetic.
+    """
+    vs=[];fs=[];uvs=[]
+    for normal in range(3):
+        a=(normal+1)%3;b=(normal+2)%3
+        na=max(1,math.ceil(size[a]/2.8));nb=max(1,math.ceil(size[b]/3.6))
+        for sign in (-1,1):
+            for j in range(nb):
+                for i in range(na):
+                    pts=[]
+                    for aa,bb in [(i,j),(i+1,j),(i+1,j+1),(i,j+1)]:
+                        p=[0,0,0];p[normal]=sign*size[normal]/2
+                        p[a]=-size[a]/2+aa*size[a]/na;p[b]=-size[b]/2+bb*size[b]/nb;pts.append(p)
+                    if sign<0:pts.reverse()
+                    start=len(vs);vs.extend(pts);fs.append(tuple(range(start,start+4)))
+                    uvs.append([(.700,.870),(.727,.870),(.727,.910),(.700,.910)])
+    o.data.clear_geometry();o.data.from_pydata(vs,[],fs);o.data.update()
+    uv=o.data.uv_layers.active or o.data.uv_layers.new()
+    for face,coords in zip(o.data.polygons,uvs):
+        for li,t in zip(face.loop_indices,coords):uv.data[li].uv=t
+    o['stonePanelSize']=[2.8,3.6]
 def cube(name,loc,size,material,solid=False):
     bpy.ops.mesh.primitive_cube_add(size=1,location=loc)
     o=bpy.context.object;o.name=name;o.dimensions=size
     bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
     o.data.materials.append(material)
-    if material==stone:
-        uv=o.data.uv_layers.active
-        if uv:
-            for face in o.data.polygons:
-                coords=[(.700,.870),(.727,.870),(.727,.910),(.700,.910)]
-                for k,li in enumerate(face.loop_indices):uv.data[li].uv=coords[k%4]
+    if material==stone:tiled_stone(o,size)
     if solid:colliders.append({'x':loc[0],'z':-loc[1],'w':size[0],'d':size[1],'height':size[2],'yMin':loc[2]-size[2]/2})
     return o
 
@@ -106,10 +128,12 @@ def path(name,coords,width=3):
     fs=[(i*2,i*2+1,i*2+3,i*2+2) for i in range(len(coords)-1)]
     me=bpy.data.meshes.new(name);me.from_pydata(vs,[],fs);me.materials.append(roof)
     ob=bpy.data.objects.new(name,me);scene.collection.objects.link(ob)
-path('Main forest avenue',[(-140,-40),(-90,-28),(-55,-18),(-20,-12),(20,-16),(60,-20),(110,-37),(150,-48)],5)
-path('Castle approach',[(-20,-12),(-20,3),(-20,16),(-20,40)],4)
-path('Northern lane',[(20,-16),(34,10),(68,22),(106,43)],3)
-path('West woodland trail',[(-90,-28),(-95,0),(-116,22),(-140,42)],3)
+road_routes=[('Main forest avenue',[(-143,-48),(-87,-34),(-20,-23),(44,-25),(101,-35),(148,-49)],4),
+ ('Castle approach',[(-20,-72),(-20,-23),(-20,-10),(-20,3)],4.5),
+ ('Campus perimeter',[(-51,-2),(-51,36),(-25,43),(22,44),(51,23),(50,-5),(20,-10),(-51,-2)],1.5),
+ ('Library lane',[(19,-26),(28,-39),(60,-51),(113,-55)],1.8),
+ ('West woodland trail',[(-128,-55),(-115,-20),(-102,2),(-98,31)],2)]
+for name,coords,width in road_routes:path(name,coords,width)
 
 def checker(name,x,y,z,w,d):
     vs=[];fs=[];idx=[];tile=.65
@@ -242,7 +266,7 @@ def auditorium(x,y,z):
         # The original has a central aisle, not uninterrupted concentric rings.
         for i in range(n):
             if abs((i+.5)/n-.5)>.085:fs.append((i*2,i*2+1,i*2+3,i*2+2))
-        me=bpy.data.meshes.new('Auditorium semicircular seating');me.from_pydata(vs,[],fs);me.materials.append(roof)
+        me=bpy.data.meshes.new('Auditorium semicircular seating');me.from_pydata(vs,[],fs);me.materials.append(seatpad)
         ob=bpy.data.objects.new('Auditorium semicircular seating',me);scene.collection.objects.link(ob)
         sol=ob.modifiers.new('Seating volume','SOLIDIFY');sol.thickness=.22;bpy.context.view_layer.objects.active=ob;bpy.ops.object.modifier_apply(modifier=sol.name)
     cube('Auditorium dais',(x,y+4,z+.16),(5.3,3.8,.32),trim)
@@ -276,37 +300,245 @@ def auditorium(x,y,z):
         for yy in (-7,5):cube('Auditorium brass roof pin',(x+side*8,y+yy,z+14),(.12,.12,1.3),brass)
     rail('Auditorium front rail',x,y-8.5,z,16)
 
-def building(name,x,y,w,d,h,towers=True):
-    z=height(x,y)+0.1
-    cube(name+' base',(x,y,z+0.4),(w+2,d+2,0.8),roof)
-    # Cutaway front retains the original miniature map's visible interior rooms.
-    cube(name+' back',(x,y+d/2,z+h/2),(w,1.2,h),stone,True)
-    cube(name+' west',(x-w/2,y,z+h/2),(1.2,d,h),stone,True)
-    cube(name+' east',(x+w/2,y,z+h/2),(1.2,d,h),stone,True)
-    for floor in (0, h*.46):
-        cube(name+' floor',(x,y,z+floor+0.6),(w,d,0.35),roof)
-        walk_surfaces.append({'x':x,'z':-y,'w':w,'d':d,'y':z+floor+.8})
-        checker(name+' interior floor',x,y,z+floor+0.8,w-2,d-2)
-        bed(x-w*.28,y+d*.20,z+floor+.82)
-        cube('Archive desk',(x+w*.26,y+d*.18,z+floor+1.5),(3,1.4,.24),wood)
-        for xx in (-1,1):
-            for yy in (-1,1):cube('Desk leg',(x+w*.26+xx*1.25,y+d*.18+yy*.5,z+floor+1.1),(.15,.15,.7),wood)
-        cube(name+' division',(x,y+d*.1,z+floor+h*.2),(0.4,d*.8,h*.4),stone)
-    cube(name+' side parapet',(x,y+d/2,z+h+.3),(w,.8,.7),stone)
-    for i in range(1, int(w/3)):
-        cube(name+' window',(x-w/2+i*3,y+d/2+.62,z+h*.6),(1.35,.08,2.3),glass)
-    if towers:
-        for xx in (-1,1):
-            tx=x+xx*(w/2+1.8);ty=y+d/2
-            stepped_tower(name,tx,ty,z,4.5,5.5,h+10)
-            for wx in (-1,1):cube(name+' tower slit',(tx+wx*1.3,ty-3.52,z+h+4),(.45,.08,3),glass)
+def reference_building(id,texture,pixels,x,y,w,d):
+    root=bpy.data.objects.new('Source building '+id,None);scene.collection.objects.link(root)
+    root['referenceBuilding']=id;root['sourceTexture']='assets/all/'+texture;root['sourcePixels']=pixels
+    root['placementScope']='Estimated depth and ground position from the isometric front; not original 3D coordinates'
+    landmarks.append({'id':id,'x':x,'z':-y,'w':w,'d':d})
+    return root
+
+def finish_building(root,before):
+    for ob in set(scene.objects)-before:
+        if ob!=root and ob.parent is None:ob.parent=root
+
+def cylinder(name,x,y,z,radius,depth,material,vertices=64):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,radius=radius,depth=depth,location=(x,y,z))
+    ob=bpy.context.object;ob.name=name;ob.data.materials.append(material)
+    if material==stone:
+        vs=[];fs=[];rows=max(1,math.ceil(depth/3.6))
+        for j in range(rows+1):
+            for i in range(vertices):
+                angle=i*math.tau/vertices;vs.append((radius*math.cos(angle),radius*math.sin(angle),-depth/2+j*depth/rows))
+        for j in range(rows):
+            for i in range(vertices):fs.append((j*vertices+i,j*vertices+(i+1)%vertices,(j+1)*vertices+(i+1)%vertices,(j+1)*vertices+i))
+        fs.extend([tuple(range(vertices-1,-1,-1)),tuple(range(rows*vertices,(rows+1)*vertices))])
+        ob.data.clear_geometry();ob.data.from_pydata(vs,[],fs);ob.data.update();uv=ob.data.uv_layers.active or ob.data.uv_layers.new()
+        for face in ob.data.polygons:
+            for k,li in enumerate(face.loop_indices):
+                if len(face.loop_indices)==4:uv.data[li].uv=[(.7,.87),(.727,.87),(.727,.91),(.7,.91)][k]
+                else:
+                    v=ob.data.vertices[ob.data.loops[li].vertex_index].co;uv.data[li].uv=(.7135+v.x/radius*.0135,.89+v.y/radius*.02)
+    return ob
+
+def inset_window_band(name,x,y,z,w,rows,columns):
+    for row in range(rows):
+        for column in range(columns):
+            cube(name,(x-w/2+(column+.5)*w/columns,y,z+row*1.15),(w/columns*.68,.06,.36),glass)
+
+def western_institution(x,y):
+    before=set(scene.objects);root=reference_building('western-institution','m_s08_hddtc_background_a02_manual__e4f2121375.webp',[1280,540,2048,1330],x,y,38,29);z=height(x,y)+.4
+    floor('Institution foundation',x,y,z,40,31)
+    floor('Institution luminous main hall',x,y-3,z+1,25,15)
+    checker('Institution central checker aisle',x,y-3,z+1.02,2.6,14)
+    facade('Institution tall hall back',x,y+4.5,z+1,25,13)
+    for side in (-1,1):
+        cube('Institution vertical window pair',(x+side*5,y+4.13,z+6),(.6,.04,4.4),lightmat)
+        cube('Institution second vertical window',(x+side*6.4,y+4.13,z+6),(.5,.04,4.4),lightmat)
+    cube('Institution main roof',(x-4,y+7,z+14),(22,13,.8),stone)
+    # Actual two bedroom openings appear only in this side wing in a02/a03.
+    for level in (1,7):
+        floor('Institution side bedroom',x+15,y-2,z+level,9,10,True)
+        facade('Institution bedroom back',x+15,y+3,z+level,9,5.5)
+        cube('Institution bedroom right wall',(x+19.5,y-2,z+level+2.7),(.7,10,5.4),stone,True)
+        bed(x+15,y-1,z+level+.02)
+    for xx in (-2,2):
+        for zz in range(5):cube('Institution archive shelf',(x+xx,y+2,z+1.5+zz*.45),(2.6,.7,.15),darktop)
+    cube('Institution small purple bench',(x+1,y-1,z+1.45),(2.6,1,.5),brass)
+    floor('Institution roof walkway',x+15,y-2,z+13.1,10,12)
+    for xx in (-4.7,4.7):rail('Institution roof runway',x+15+xx,y-2,z+13.1,12,'y')
+    stepped_tower('Institution front pier',x-17,y-6,z,9,10,22)
+    floor('Institution front pier rooftop',x-17,y-6,z+22.5,9,10)
+    for xx in (-4,4):rail('Institution pier roof rail',x-17+xx,y-6,z+22.5,10,'y')
+    stepped_tower('Institution rear split pier',x-13,y+11,z,8,9,33)
+    stepped_tower('Institution taller rear pier',x-4,y+13,z,7,8,37)
+    stair('Institution front approach',x,y-13,z,7,5,1)
+    finish_building(root,before)
+
+def roof_annex(x,y):
+    before=set(scene.objects);root=reference_building('roof-bedroom-annex','m_s08_hddtc_background_a03_manual__48c359e04b.webp',[1240,0,1790,805],x,y,25,19);z=height(x,y)+.4
+    cube('Annex closed lower block',(x,y,z+7),(25,19,14),stone,True)
+    inset_window_band('Annex narrow inset window',x,y-9.54,z+1.5,23,9,8)
+    floor('Annex single cutaway roof bedroom',x+4,y-4,z+14.15,13,9,True)
+    facade('Annex bedroom back',x+4,y+.5,z+14.15,13,4.3)
+    cube('Annex bedroom right wall',(x+10.5,y-4,z+16.3),(.7,9,4.3),stone)
+    bed(x+.7,y-3,z+14.17)
+    cube('Annex square orb table',(x+7,y-3.4,z+15.1),(2.2,2.2,.35),wood)
+    for dx in (-.8,.8):
+        for dy in (-.8,.8):cube('Annex orb table leg',(x+7+dx,y-3.4+dy,z+14.57),(.15,.15,.8),wood)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16,ring_count=8,radius=.4,location=(x+7,y-3.4,z+15.7))
+    ob=bpy.context.object;ob.name='Annex blue orb';ob.data.materials.append(mat('Reference blue globe',(.07,.24,.32),.23))
+    cube('Annex closed rear roof',(x-3,y+3.5,z+14.3),(19,10,.6),stone)
+    cube('Annex tall back split tower',(x+3,y+7,z+26),(10,8,24),stone,True)
+    for side in (-1,1):cube('Annex split crown',(x+3+side*2.6,y+7,z+38.4),(4.6,8,.8),stone)
+    cube('Annex dark tower notch',(x+3,y+2.95,z+29),(3.8,.06,1.2),darktop)
+    finish_building(root,before)
+
+def sports_terrace(x,y):
+    before=set(scene.objects);root=reference_building('sports-terrace','m_s08_hddtc_background_a04_manual__416aec4db2.webp',[220,235,1030,1280],x,y,24,24);z=height(x,y)+.5
+    # Chamfered plinth and recessed blue ping-pong niche, not a bedroom.
+    bpy.ops.mesh.primitive_cylinder_add(vertices=8,radius=14,depth=8,location=(x,y,z+4),rotation=(0,0,math.pi/8))
+    ob=bpy.context.object;ob.name='Sports chamfered octagonal plinth';ob.data.materials.append(stone)
+    floor('Sports rooftop court',x,y,z+9,22,20)
+    for xx in (-11,11):cube('Sports side parapet',(x+xx,y,z+10.5),(.7,20,3),stone)
+    cube('Sports rear parapet',(x,y+10,z+10.5),(22,.7,3),stone)
+    for xx in (-7,0,7):cube('Sports white court line',(x+xx,y+2,z+9.02),(.10,15,.02),ivory)
+    for yy in (-5,9):cube('Sports white boundary',(x,y+yy,z+9.02),(15,.1,.02),ivory)
+    for xx in (-1.1,1.1):cube('Sports paired rooftop dash',(x+xx,y+1,z+9.03),(1.7,.22,.025),ivory)
+    blue=mat('Source table tennis blue border',(.055,.07,.18))
+    cube('Sports blue recessed apron',(x,y-7,z+9.04),(11,6,.08),blue)
+    floor('Sports ivory table niche',x,y-7,z+9.10,10,5)
+    for side in (-1,1):
+        cube('Table tennis table half',(x+side*1.16,y-7,z+10.1),(2.24,2.6,.14),glass)
+        cube('Table tennis edge line',(x+side*2.24,y-7,z+10.18),(.04,2.6,.015),ivory)
+        for yy in (-1,1):cube('Table tennis leg',(x+side*1.8,y-7+yy,z+9.58),(.09,.09,.96),darktop)
+    cube('Table tennis net',(x,y-7,z+10.4),(.04,2.75,.5),darktop)
+    for xx,col in [(-1.8,(.45,.07,.04)),(1.8,(.5,.24,.055))]:
+        m=mat('Source table paddle '+str(xx),col);cylinder('Table tennis paddle',x+xx,y-7.4,z+10.21,.16,.035,m,16)
+    stepped_tower('Sports tall rear block',x-5,y+15,z,9,10,34)
+    stepped_tower('Sports shorter rear block',x+5,y+14,z,7,8,29)
+    cube('Sports isolated stone block',(x+14,y+12,z+5),(4,4,10),stone)
+    finish_building(root,before)
+
+def rotunda(x,y):
+    before=set(scene.objects);root=reference_building('rotunda','m_s08_hddtc_background_a04_manual__416aec4db2.webp',[305,1260,1100,2048],x,y,27,26);z=height(x,y)+.4
+    cylinder('Rotunda lower cylinder',x,y,z+5,11.5,10,stone)
+    for h in (1.3,6.8):cylinder('Rotunda dark continuous window belt',x,y,z+h,11.56,.75,glass)
+    cylinder('Rotunda broad flat roof',x,y,z+10.3,12.2,.6,stone)
+    cylinder('Rotunda central drum',x,y,z+12.3,3.8,3.6,stone)
+    cylinder('Rotunda central drum cap',x,y,z+14.15,4,.15,trim)
+    cube('Rotunda projecting roof landing',(x,y-9,z+10.3),(6,14,.6),stone)
+    for xx in (-3,3):cube('Rotunda projecting landing lip',(x+xx,y-9,z+10.8),(.22,14,.8),trim)
+    cube('Rotunda projecting front volume',(x,y-13,z+5),(6,3,10),stone,True)
+    stepped_tower('Rotunda tall rear block',x+7,y+10,z,7,8,31)
+    stepped_tower('Rotunda stepped rear block',x+14,y+10,z,5,6,22)
+    floor('Rotunda adjacent green terrace',x-17,y,z+1,10,19)
+    for xx in (-21,-13):cube('Rotunda adjacent line',(x+xx,y,z+1.02),(.09,17,.015),ivory)
+    finish_building(root,before)
+
+def gatehouse(x,y):
+    before=set(scene.objects);root=reference_building('front-gatehouse','m_s08_hddtc_background_a02b_manual__ca83fee478.webp',[915,0,1500,300],x,y,19,12);z=.45
+    floor('Gatehouse entry floor',x,y,z,19,12)
+    for side in (-1,1):
+        cube('Gatehouse notched front pier',(x+side*6.5,y-4,z+4.5),(6,3,9),stone,True)
+        cube('Gatehouse projecting vertical blade',(x+side*3.9,y-5.7,z+3.3),(1,1,6.6),stone)
+        cube('Gatehouse side wall',(x+side*9,y+1,z+3),(.6,12,6),stone,True)
+    cube('Gatehouse door lintel',(x,y-4,z+7.8),(7,3,2.4),stone,True)
+    checker('Gatehouse short checker aisle',x,y+2,z+.02,2,8)
+    for side in (-1,1):cube('Gatehouse inner vertical light',(x+side*4,y+4,z+4.6),(.5,.1,3),lightmat)
+    cube('Gatehouse rear lintel',(x,y+5,z+7.5),(16,.7,1.4),stone)
+    purple=mat('Source purple car paint',(.17,.10,.25),.36)
+    cube('Gatehouse purple car body',(x,y-15,z+.65),(1.9,3.9,.9),purple,True)
+    cube('Gatehouse purple car cabin',(x,y-14.85,z+1.35),(1.65,1.9,.65),purple)
+    for yy in (-15.84,-13.86):cube('Gatehouse purple car windshield',(x,yy,z+1.4),(1.5,.055,.42),glass)
+    for xx in (-1.0,1.0):
+        for yy in (-16.1,-13.85):
+            ob=cylinder('Gatehouse purple car wheel',x+xx,yy,z+.45,.38,.20,darktop,16);ob.rotation_euler.y=math.pi/2
+    finish_building(root,before)
+
+def library(x,y):
+    before=set(scene.objects);root=reference_building('library-cutaway','m_s08_hddtc_background_a02b_manual__ca83fee478.webp',[1110,1250,1600,1610],x,y,19,12);z=height(x,y)+.4
+    floor('Library open wooden floor',x,y,z,19,12)
+    cube('Library ochre back wall',(x,y+5.8,z+3.5),(19,.7,7),seatpad,True)
+    for xx in (-9,-3,3,9):cube('Library pale pillar',(x+xx,y+5,z+3.5),(.65,1,7),trim)
+    cube('Library narrow roof canopy',(x,y+4,z+7.3),(20,5,.45),stone)
+    for xx in (-6,0,6):
+        cube('Library bookcase dark back',(x+xx,y+5.1,z+3),(4.3,.5,5.6),darktop)
+        for dx in (-2.15,2.15):cube('Library bookcase side',(x+xx+dx,y+4.6,z+3),(.22,1.1,5.6),wood)
+        for level in range(7):
+            cube('Library bookcase shelf',(x+xx,y+4.6,z+.35+level*.8),(4.4,1.1,.15),wood)
+            for b in range(10):
+                cube('Library visible book spine',(x+xx-1.8+b*.38,y+4.03,z+.69+level*.8),(.22,.16,.42+(b%3)*.07),[wood,brass,glass,seatframe][b%4])
+    cube('Library central black table',(x,y-1.8,z+1.4),(7,2.4,.3),darktop)
+    for dx in (-2.6,2.6):cube('Library central table leg',(x+dx,y-1.8,z+.6),(.22,1.8,1.2),wood)
+    for i in range(5):cube('Library red and white flower cluster',(x+(i-2)*.28,y-1.8,z+2+(i%2)*.2),(.25,.25,.65),ivory if i%2 else seatframe)
+    for dx,dy,w,d,h in [(4,12,9,8,13),(14,14,6,6,9),(20,3,7,7,10)]:
+        cube('Library neighborhood plain block',(x+dx,y+dy,z+h/2),(w,d,h),stone,True)
+        cube('Library neighborhood brown roof',(x+dx,y+dy,z+h+.08),(w,d,.18),wood)
+    finish_building(root,before)
+
+def rounded_profile(name,x,y,z,w,d,thickness,material,rim=False,open_front=False):
+    """Scalloped rounded silhouette visible in the source dormitory strip."""
+    vs=[];fs=[];n=64
+    for h in (0,thickness):
+        for inset in ((0,.6) if rim else (0,)):
+            for i in range(n):
+                a=i*math.tau/n;c=math.cos(a);s=math.sin(a)
+                xx=math.copysign(abs(c)**.5,c)*(w/2-inset);yy=math.copysign(abs(s)**.5,s)*(d/2-inset)
+                if s>.15:yy+=.45*math.cos(a*8)
+                vs.append((x+xx,y+yy,z+h))
+    if rim:
+        for i in range(n):
+            if open_front and math.sin((i+.5)*math.tau/n)<-.25:continue
+            j=(i+1)%n
+            fs.extend([(i,j,n+j,n+i),(2*n+i,3*n+i,3*n+j,2*n+j),(i,2*n+i,2*n+j,j),(n+i,n+j,3*n+j,3*n+i)])
+    else:
+        fs=[tuple(range(n-1,-1,-1)),tuple(range(n,2*n))]+[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
+    me=bpy.data.meshes.new(name);me.from_pydata(vs,[],fs);me.materials.append(material)
+    ob=bpy.data.objects.new(name,me);scene.collection.objects.link(ob);return ob
+
+def curved_dorm(x,y):
+    before=set(scene.objects);root=reference_building('curved-dormitory','m_s08_hddtc_background_a04b_manual__21a953f5d2.webp',[1040,0,1830,615],x,y,34,24);z=height(x,y)+.4
+    gold=mat('Source dorm ochre paving',(.40,.32,.15));cream=mat('Source dorm pale curved band',(.57,.57,.43));blue=mat('Source dorm teal blanket',(.065,.25,.27))
+    rounded_profile('Curved dorm ochre paving island',x+3,y-2,z,39,32,.4,gold)
+    rounded_profile('Curved dorm continuous dark windows',x,y,z+.5,25,20,12.5,darktop)
+    for level in range(5):
+        rounded_profile('Curved dorm scalloped horizontal floor',x,y,z+.8+level*2.7,25.7,20.7,.9,cream)
+    rounded_profile('Curved dorm open rooftop floor',x,y,z+14.5,25.5,20.5,.4,gold)
+    walk_surfaces.append({'x':x,'z':-y,'w':22,'d':17,'y':z+14.9})
+    for level in range(4):rounded_profile('Curved dorm scalloped rim',x,y,z+15+level*2.05,26,21,.75,cream,True,True)
+    bed(x-6,y+1,z+14.92)
+    cube('Curved dorm teal bedcover',(x-6,y+.3,z+15.97),(2.23,2.1,.08),blue)
+    cylinder('Curved dorm standing lamp base',x-9,y-1,z+15.05,.4,.25,darktop,24)
+    cylinder('Curved dorm standing lamp stem',x-9,y-1,z+16.4,.08,2.6,brass,16)
+    cylinder('Curved dorm standing lamp disc',x-9,y-1,z+17.7,.45,.16,cream,24)
+    cube('Curved dorm low black rooftop object',(x-1,y-4,z+15.4),(1.5,.6,1),darktop)
+    for level in range(6):rounded_profile('Curved dorm narrow auxiliary tower',x+19,y+2,z+.7+level*2.7,7.5,10,.9,cream,True)
+    rounded_profile('Curved dorm small front court',x-13,y-15,z+.4,8,7,1.2,cream,True)
+    for dx,dy,w,d in [(15,-12,6,3),(9,-16,3,2),(18,-16,6,5),(-7,-14,9,2)]:cube('Curved dorm dark paving inset',(x+dx,y+dy,z+.46),(w,d,.12),glass)
+    # Bounding volumes describe opaque lower facade, not the open rooftop.
+    colliders.append({'x':x,'z':-y,'w':23,'d':18,'height':14.4,'yMin':z})
+    finish_building(root,before)
+
+def orbital_platform(x,y):
+    before=set(scene.objects);root=reference_building('orbital-platform','m_s08_hddtc_background_a02_manual__e4f2121375.webp',[0,1630,470,2048],x,y,26,26);z=height(x,y)+.4
+    silver=mat('Source orbital silver',(.62,.68,.69),.24)
+    next(n for n in silver.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Metallic'].default_value=.78
+    cylinder('Orbital silver circular foundation',x,y,z+.6,12,.7,silver)
+    cylinder('Orbital ochre stage',x,y,z+1.02,10.8,.15,seatpad)
+    rounded_profile('Orbital silver enclosing rim',x,y,z+1.08,23,23,.35,silver,True)
+    for dx,dy in [(-5,-4),(5,-4),(0,5)]:
+        cube('Orbital globe stone plinth',(x+dx,y+dy,z+1.55),(1.8,1.8,1),trim)
+        cylinder('Orbital globe short support',x+dx,y+dy,z+2.5,.23,1,silver,16)
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=24,ring_count=12,radius=1.35,location=(x+dx,y+dy,z+3.8));ob=bpy.context.object;ob.name='Orbital silver globe';ob.data.materials.append(silver)
+        for a in (0,math.pi*.7,math.pi*1.4):
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=8,ring_count=4,radius=.19,location=(x+dx+1.25*math.cos(a),y+dy+1.25*math.sin(a),z+3.8));bpy.context.object.name='Orbital dark globe aperture';bpy.context.object.data.materials.append(darktop)
+    for dx in (-9,9):
+        vs=[];fs=[]
+        for i in range(49):
+            a=i*math.pi/48
+            for t in (-.35,.35):vs.append((x+dx+t,y+11*math.cos(a),z+1+9*math.sin(a)))
+        for i in range(48):fs.append((i*2,i*2+1,i*2+3,i*2+2))
+        me=bpy.data.meshes.new('Orbital curved silver arch');me.from_pydata(vs,[],fs);me.materials.append(silver)
+        ob=bpy.data.objects.new('Orbital curved silver arch',me);scene.collection.objects.link(ob)
+    cylinder('Orbital central silver pole',x,y,z+8,.16,14,silver,16)
+    finish_building(root,before)
 
 # Rebuild the visible central compound, including its distinctive auditorium.
 x=-20;y=16;z=.45
 floor('Central foundation plinth',x,y,z,50,33)
 stair('Central entrance',x,-3,0,12,7,.45)
 auditorium(x,y-3,z+6.4)
-cube('Auditorium wallwash',(x,y+5.65,z+12.4),(5.8,.02,7),lightmat)
+cube('Auditorium wallwash',(x,y+5.65,z+12.4),(13,.02,9),lightmat)
 # The hall sits above a visible strip of narrow windows, not at ground level.
 cube('Auditorium lower rear volume',(x,y+3,z+3.2),(17,10,6.4),stone,True)
 cube('Auditorium lower facade sill',(x,y-8.7,z+.75),(17,.7,1.5),stone)
@@ -347,24 +579,28 @@ floor('Rear passage return bridge',-20,35.5,z+6.4,3,14)
 floor('Rear passage stair head landing',-16.5,42.5,z+6.4,10,3)
 rail('Rear passage return bridge guard',-21.5,35.5,z+6.4,14,'y')
 rail('Rear passage return bridge guard',-18.5,35.5,z+6.4,11,'y')
-building('Eastern residence',66,17,22,18,14)
-building('North lookout',109,42,15,12,13)
-building('Western greenhouse',-105,2,21,17,9)
+western_institution(-82,28)
+roof_annex(34,38)
+sports_terrace(88,37)
+rotunda(96,-2)
+gatehouse(-20,-12)
+library(28,-44)
+curved_dorm(-105,-35)
+orbital_platform(-137,4)
 # Open central lawn, monuments and castle staircase.
 cube('Castle front lawn',(-20,-5,.15),(34,12,.1),grass)
-cube('Water basin',(40,-40,.13),(27,19,.12),water)
-for x,y in [(-55,30),(20,34),(91,-22)]:cube('Reference stone monolith',(x,y,height(x,y)+5),(6,7,10),stone,True)
+for x,y in [(-55,30),(17,17),(111,24)]:cube('Reference stone monolith',(x,y,height(x,y)+5),(6,7,10),stone,True)
 
 # Fir prototype matches the faceted foliage and taper in the official sandtable.
 parts=[]
 bpy.ops.mesh.primitive_cylinder_add(vertices=7,radius=.18,depth=2.8,location=(0,0,1.4));parts.append(bpy.context.object);parts[-1].data.materials.append(trunk)
-for level in range(7):
-    radius=2.1*(1-level/7.6)**.85
-    bpy.ops.mesh.primitive_cone_add(vertices=21,radius1=radius,radius2=radius*.10,depth=1.45,location=(0,0,1.25+level*.82))
+for level in range(12):
+    radius=2.1*(1-level/12.8)**.85*(.95+.07*math.sin(level*1.7))
+    bpy.ops.mesh.primitive_cone_add(vertices=28,radius1=radius,radius2=radius*.17,depth=1.1,location=(0,0,1.1+level*.50))
     for v in bpy.context.object.data.vertices:
-        a=math.atan2(v.co.y,v.co.x);factor=1+.18*math.sin(a*7+level*.8)
+        a=math.atan2(v.co.y,v.co.x);factor=1+.13*math.sin(a*7+level*.8)+.055*math.cos(a*11+level)
         v.co.x*=factor;v.co.y*=factor
-        if v.co.z<0:v.co.z+=.24*math.cos(a*7+level*.8)
+        if v.co.z<0:v.co.z+=.17*math.cos(a*7+level*.8)
     parts.append(bpy.context.object);parts[-1].data.materials.append(greens[0])
 bpy.ops.object.select_all(action='DESELECT')
 for ob in parts:ob.select_set(True)
@@ -373,13 +609,21 @@ bpy.context.scene.cursor.location=(0,0,0);bpy.ops.object.origin_set(type='ORIGIN
 canopies=[]
 for color in greens:
     data=prototype.data.copy();data.materials[1]=color;canopies.append(data)
-for i in range(1050):
+def near_road(x,y):
+    for _,coords,width in road_routes:
+        for (ax,ay),(bx,by) in zip(coords,coords[1:]):
+            dx=bx-ax;dy=by-ay;t=max(0,min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)))
+            if math.hypot(x-ax-t*dx,y-ay-t*dy)<width/2+1.3:return True
+    return False
+
+for i in range(1450):
     x=random.uniform(-153,153);y=random.uniform(-72,72)
-    if any(abs(x-bx)<bw and abs(y-by)<bd for bx,by,bw,bd in [(-20,16,30,23),(66,17,18,18),(109,42,14,13),(-105,2,18,16),(40,-40,19,15)]):continue
+    if any(abs(x-l['x'])<l['w']/2+3 and abs(y+l['z'])<l['d']/2+3 for l in landmarks):continue
+    if (7<x<57 and -65<y<-26) or (-106<x<-60 and 29<y<47) or (70<x<111 and 33<y<56):continue
     if -24<x<-9 and 30<y<46:continue
-    if abs(y-(-19-.09*x))<4 or (abs(x+20)<5 and -15<y<45):continue
+    if near_road(x,y):continue
     ob=bpy.data.objects.new('Fir %04d'%i,random.choices(canopies,weights=[.62,.24,.11,.03])[0]);scene.collection.objects.link(ob)
-    ob.location=(x,y,height(x,y));sc=random.uniform(.95,1.7);ob.scale=(sc,sc,sc*random.uniform(.95,1.25));ob.rotation_euler.z=random.random()*math.tau
+    ob.location=(x,y,height(x,y));sc=random.uniform(.60,1.18);ob.scale=(sc,sc,sc*random.uniform(.95,1.25));ob.rotation_euler.z=random.random()*math.tau
 bpy.data.objects.remove(prototype,do_unlink=True)
 # Continuous mountain front: official cliff/snow texture, no generic spheres.
 mountain=mat('Original a01 cliff and snow',(1,1,1))
@@ -400,11 +644,11 @@ for p in me.polygons:
         v=me.vertices[me.loops[li].vertex_index].co;uv.data[li].uv=((v.x+160)/320,.72+(v.y-50)/30*.28)
 ob=bpy.data.objects.new('Reference continuous northern massif',me);scene.collection.objects.link(ob);ob['sourceFeature']='northern-massif'
 
-bpy.ops.object.camera_add(location=(2,-105,72));camera=bpy.context.object;camera.name='World overview'
-camera.rotation_euler=(Vector((-20,16,13))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=112;scene.camera=camera
+bpy.ops.object.camera_add(location=(26,-103,109));camera=bpy.context.object;camera.name='World overview'
+camera.rotation_euler=(Vector((-20,16,13))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=124;scene.camera=camera
 bpy.ops.object.light_add(type='SUN',location=(0,-30,80));sun=bpy.context.object;sun.name='Overcast winter sun';sun.data.energy=1.8;sun.data.angle=math.radians(16);sun.rotation_euler=(.4,-.5,-.3)
-for lx,ly,lz in [(-20,22,8),(-38,21,3.5),(-2,21,10)]:
-    bpy.ops.object.light_add(type='AREA',location=(lx,ly,lz));light=bpy.context.object;light.name='Interior indirect light';light.data.energy=130;light.data.color=(.73,.90,.72);light.data.shape='DISK';light.data.size=7
+for lx,ly,lz in [(-20,17,17),(-38,18,11),(-2,18,11),(-82,28,11)]:
+    bpy.ops.object.light_add(type='AREA',location=(lx,ly,lz));light=bpy.context.object;light.name='Interior indirect light';light.data.energy=400;light.data.color=(.83,.97,.83);light.data.shape='DISK';light.data.size=7
 scene.world=bpy.data.worlds.new('Winter sky');scene.world.use_nodes=True
 next(n for n in scene.world.node_tree.nodes if n.type=='BACKGROUND').inputs['Color'].default_value=(.49,.59,.63,1)
 next(n for n in scene.world.node_tree.nodes if n.type=='BACKGROUND').inputs['Strength'].default_value=.65
@@ -414,7 +658,7 @@ scene.render.image_settings.file_format='PNG'
 
 os.makedirs(os.path.join(ROOT,'public/models'),exist_ok=True)
 with open(os.path.join(ROOT,'public/data/world.json'),'w',encoding='utf-8') as f:
-    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'spawn':[0,2,35], 'model':'models/tigers-world.glb','revision':3,'sourceScope':'Central fixtures and visible openings traced from a03; remaining world still reference-guided adaptation'},f,ensure_ascii=False)
+    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'landmarks':landmarks,'roads':[{'points':[[px,-py] for px,py in coords],'width':width} for _,coords,width in road_routes],'destinations':{'castle':[-20,4,32],'east':[34,4,-23],'forest':[-70,4,23]},'spawn':[0,2,35], 'model':'models/tigers-world.glb','revision':4,'sourceScope':'Central openings and eight peripheral silhouettes traced from original atlases; depth, ground positions, vegetation, mountain geometry and hidden faces remain estimated'},f,ensure_ascii=False)
 bpy.ops.export_scene.gltf(filepath=os.path.join(ROOT,'public/models/tigers-world.glb'),export_format='GLB',use_active_scene=True,export_cameras=False,export_lights=False,export_extras=True)
 
 # A second Blender scene preserves all original draw meshes and their UVs.

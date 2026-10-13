@@ -93,3 +93,25 @@ test('fir instancing accepts the sanitized names emitted by GLTFLoader',async()=
   for(let i=0;i<4;i++){const group=new THREE.Group();group.name='Fir_'+i;group.position.x=i;group.add(new THREE.Mesh(geometry,material));root.add(group);}
   batch(root);const instances=[];root.traverse(o=>{if(o.isInstancedMesh)instances.push(o);});assert.equal(instances.length,1);assert.equal(instances[0].count,4);
 });
+
+test('peripheral buildings have individually traced silhouettes rather than repeated bedroom templates',async()=>{
+  const b=await readFile('public/models/tigers-world.glb');const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));
+  const features=new Map(j.nodes.filter(n=>n.extras?.referenceBuilding).map(n=>[n.extras.referenceBuilding,n]));
+  for(const id of ['western-institution','roof-bedroom-annex','sports-terrace','rotunda','front-gatehouse','library-cutaway','curved-dormitory','orbital-platform']){
+    assert.ok(features.has(id),`Missing reference building ${id}`);
+    assert.equal(features.get(id).extras.sourcePixels.length,4);
+    assert.ok(features.get(id).extras.sourceTexture.startsWith('assets/all/'));
+  }
+  const names=j.nodes.map(n=>n.name||'');
+  for(const part of ['Table tennis net','Rotunda central drum','Library bookcase','Gatehouse purple car','Annex blue orb','Curved dorm scalloped rim','Orbital silver globe'])assert.ok(names.some(n=>n.includes(part)),`Missing ${part}`);
+  assert.ok(!names.some(n=>/Eastern residence|North lookout|Western greenhouse/.test(n)));
+});
+
+test('navigation and reference landmarks share the actual exported building locations',async()=>{
+  const w=JSON.parse(await readFile('public/data/world.json'));
+  assert.equal(w.revision,4);assert.ok(w.landmarks.length>=7);
+  assert.equal(w.landmarks.find(l=>l.id==='sports-terrace').x,88);
+  assert.equal(w.landmarks.find(l=>l.id==='roof-bedroom-annex').x,34);
+  assert.ok(w.landmarks.every(l=>l.w>0&&l.d>0));
+  assert.ok(w.destinations.east&&w.destinations.castle&&w.destinations.forest);
+});

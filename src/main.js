@@ -11,12 +11,12 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,1.75)); renderer.outputColorSpa
 renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=1.0;
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#aebfc2');scene.fog=new THREE.FogExp2('#aebfc2',.0019);
-const camera=new THREE.PerspectiveCamera(48,1,.1,650);camera.position.set(2,63,108);
+const camera=new THREE.PerspectiveCamera(48,1,.1,650);camera.position.set(26,98,103);
 const orbit=new OrbitControls(camera,canvas);orbit.target.set(-20,11,-16);orbit.enableDamping=true;orbit.minDistance=5;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
 const hemi=new THREE.HemisphereLight('#d8e5ec','#45543b',1.65);scene.add(hemi);
 const sun=new THREE.DirectionalLight('#e3e9d8',2.3);sun.position.set(-70,100,60);sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-95,right:95,top:95,bottom:-95,near:1,far:280});sun.shadow.bias=-.0003;sun.shadow.normalBias=.035;scene.add(sun);
-for(const [x,y,z] of [[-20,8,-22],[-38,3.5,-21],[-2,10,-21]]){const light=new THREE.PointLight('#cee4bd',30,15,2);light.position.set(x,y,z);scene.add(light);}
+for(const [x,y,z] of [[-20,17,-17],[-38,11,-18],[-2,11,-18],[-2,17.4,-18],[-82,11,-28]]){const light=new THREE.PointLight('#cee4bd',85,20,2);light.position.set(x,y,z);scene.add(light);}
 let world,chapters,worldGroup,originalGroup=new THREE.Group(),sourceMode=false,mode='overview',episode=0,ready=false;
 let yaw=0,pitch=0,uiHidden=false,lastPointer=null,transition=null;
 const keys=new Set(),clock=new THREE.Clock(),up=new THREE.Vector3(0,1,0),pointer=new THREE.Vector2();
@@ -98,12 +98,12 @@ async function toggleSource(value=!sourceMode){
 }
 function resetView(){
   transition=null;if(sourceMode){changeEpisode(episode);return;}
-  if(mode==='overview'){camera.position.set(2,63,108);orbit.target.set(-20,11,-16);orbit.update();}
+  if(mode==='overview'){camera.position.set(26,98,103);orbit.target.set(-20,11,-16);orbit.update();}
   else{camera.position.set(0,mode==='walk'?2:20,35);camera.lookAt(-20,3,-10);directionFromCamera();}
 }
 function jump(place){
   if(sourceMode){toast('返回大世界后可进入地点');return;}
-  const p={castle:[-20,4,7],east:[66,4,-2],forest:[-70,4,23]}[place];
+  const p=world.destinations[place];
   const end=new THREE.Vector3(p[0],mode==='overview'?32:mode==='walk'?terrainHeight(p[0],p[2])+1.8:16,p[2]+(mode==='overview'?35:0));
   transition={from:camera.position.clone(),end,start:performance.now(),target:new THREE.Vector3(p[0],3,p[2]-14)};
 }
@@ -142,8 +142,9 @@ function move(dt){
 }
 const map=$('#minimap'),mc=map.getContext('2d');let mapTick=0;
 function drawMap(){
-  mc.clearRect(0,0,300,150);mc.fillStyle='#233b34';mc.fillRect(0,0,300,150);mc.fillStyle='#b6c5c3';mc.fillRect(0,0,300,31);mc.strokeStyle='#a6aa80';mc.lineWidth=3;mc.beginPath();mc.moveTo(10,115);mc.lineTo(60,97);mc.lineTo(140,85);mc.lineTo(212,98);mc.lineTo(292,125);mc.stroke();
-  for(const [x,z,w,d] of [[-20,-16,50,33],[66,-17,22,18],[109,-42,15,12],[-105,-2,21,17]]){mc.fillStyle='#d8d4bb';mc.fillRect((x+160)/320*300-w/320*150,(z+80)/160*150-d/160*75,w/320*300,d/160*150);}
+  mc.clearRect(0,0,300,150);mc.fillStyle='#233b34';mc.fillRect(0,0,300,150);mc.fillStyle='#b6c5c3';mc.fillRect(0,0,300,31);mc.strokeStyle='#a6aa80';
+  for(const road of world.roads){mc.lineWidth=road.width/320*300;mc.beginPath();road.points.forEach(([x,z],i)=>mc[i?'lineTo':'moveTo']((x+160)/320*300,(z+80)/160*150));mc.stroke();}
+  for(const {x,z,w,d} of world.landmarks){mc.fillStyle='#d8d4bb';mc.fillRect((x+160)/320*300-w/320*150,(z+80)/160*150-d/160*75,w/320*300,d/160*150);}
   const x=(camera.position.x+160)/320*300,z=(camera.position.z+80)/160*150;mc.fillStyle='#f3d9a1';mc.beginPath();mc.arc(x,z,3.5,0,Math.PI*2);mc.fill();mc.strokeStyle='#f3d9a1';mc.beginPath();mc.moveTo(x,z);mc.lineTo(x-Math.sin(yaw)*10,z-Math.cos(yaw)*10);mc.stroke();
   $('#coordinates').textContent=`X ${camera.position.x.toFixed(0)} · Z ${camera.position.z.toFixed(0)}`;
 }
