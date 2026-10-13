@@ -1,0 +1,64 @@
+{
+  "repository": "https://github.com/VioletWilde/1999-demo",
+  "commit": "1d83ddc454c9c7c193e4c458412db42bfc5d8031",
+  "chapter": 104,
+  "title": "老虎的金黄",
+  "scenes": 23,
+  "files": [
+    {
+      "path": "assets/all/m_s08_hddtc_background_a01_manual__0e4ca30c84.webp",
+      "bytes": 224444,
+      "sha256": "1c04c8ed3bc880b9c3b0dff52d31ee859b930ff7285ca0a038af4e6193bbaec3"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a02_manual__e4f2121375.webp",
+      "bytes": 405020,
+      "sha256": "c7087e413ccb0f9656a0a65d4b301db00f9df50c685c0318a1f8d6ae4ab4148f"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a04b_manual__21a953f5d2.webp",
+      "bytes": 334438,
+      "sha256": "92c0765d704d1698abfdb2bfc222c356809ab6feff5be88526feafce87add1b8"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp",
+      "bytes": 556100,
+      "sha256": "2b8e17e717f990cb51dae8d5461806425263df642f4fd97f7a4b001125ec366f"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a04_manual__416aec4db2.webp",
+      "bytes": 344146,
+      "sha256": "ce84357d601a9532addd6e8ef3bfd1ee855ba5b7bfb84b37f7788b5c69c1db56"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a02b_manual__ca83fee478.webp",
+      "bytes": 337874,
+      "sha256": "8b29375f71973c7fc8ffa1128de681413703d5031ac65089dbc81c33dfaac82b"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_background_a05_manual__5d434ca88d.webp",
+      "bytes": 365540,
+      "sha256": "0137bef26e38f8a634fc3d36457b69c116f770e7210062cd6fa7f4bc1a918a39"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_obj_a04__d0fcd890b3.webp",
+      "bytes": 22256,
+      "sha256": "45d697e1c298327a6dae501c038e59527557a5c70c083148fd48f888b50a66f4"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_obj_a03__74c11159d2.webp",
+      "bytes": 349580,
+      "sha256": "c690d2f44ab4db6784f29d48397701b9fe13265b42a728f6d7aee14d1f7edcb8"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_obj_a01__d3a9cdc8c9.webp",
+      "bytes": 123474,
+      "sha256": "8de896fdb20b96a720f07609cb0217c334b7fd5bead9b56955168a3c93a86b7e"
+    },
+    {
+      "path": "assets/all/m_s08_hddtc_obj_a02__4f6a2226cd.webp",
+      "bytes": 581550,
+      "sha256": "594bf5ff3496d1bb6f0fa89a70d5ba2c67fedaf0f7c2a66a3d1628d955b04c39"
+    }
+  ]
+}
