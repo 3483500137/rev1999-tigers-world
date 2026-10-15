@@ -2,11 +2,22 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {canOccupy,constrainPosition,terrainHeight} from '../src/movement.js';
+import {canOccupy,constrainPosition,terrainHeight,initialView} from '../src/movement.js';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 test('walking cannot cross solid castle walls',()=>{const c=[{x:0,z:0,w:10,d:2}];assert.equal(canOccupy(0,.5,c),false);assert.equal(canOccupy(0,4,c),true);});
 test('walking and flying remain in world bounds and above terrain',()=>{const w={bounds:{minX:-155,maxX:155,minZ:-75,maxZ:75}};let p=constrainPosition({x:900,z:-900,y:-10},w,true);assert.equal(p.x,155);assert.equal(p.z,-75);assert.equal(p.y,terrainHeight(155,-75)+1.8);p=constrainPosition({x:0,z:0,y:1000},w);assert.equal(p.y,90);});
+test('walking and flying start on the configured road and face the auditorium',()=>{
+  const world={bounds:{minX:-155,maxX:155,minZ:-75,maxZ:75},spawn:[-20,2,35],landmarks:[{id:'central-auditorium',x:-20,z:-16}]};
+  const walk=initialView(world,'walk'),fly=initialView(world,'fly');
+  assert.deepEqual([walk.position[0],walk.position[2]],[-20,35]);
+  assert.equal(walk.position[1],terrainHeight(-20,35)+1.8);
+  assert.deepEqual(fly.position,[-20,20,35]);assert.equal(walk.target[0],-20);assert.equal(walk.target[2],-16);
+  world.overview={position:[4,109,103],target:[-20,13,-16],span:70};
+  assert.deepEqual(initialView(world).position,world.overview.position);
+  initialView(world).position[0]=999;assert.equal(world.overview.position[0],4);
+});
 test('all original textures match pinned upstream source hashes',async()=>{const m=JSON.parse(await readFile('public/data/sources.json'));assert.equal(m.files.length,11);for(const f of m.files){const b=await readFile('public/'+f.path);assert.equal(createHash('sha256').update(b).digest('hex'),f.sha256);}});
 test('Blender GLB is valid and contains genuine geometry',async()=>{const b=await readFile('public/models/tigers-world.glb');assert.equal(b.toString('ascii',0,4),'glTF');assert.equal(b.readUInt32LE(4),2);assert.equal(b.readUInt32LE(8),b.length);const j=JSON.parse(b.toString('utf8',20,20+b.readUInt32LE(12)));assert.ok(j.meshes.length>20);assert.ok(j.nodes.length>500);});
 test('chapter contains all 23 original scenes and valid UV faces',async()=>{const s=JSON.parse(await readFile('public/data/chapter-104.json'));assert.equal(s.length,23);for(const scene of s)for(const d of scene.draws)for(const face of d.faces)for(const [v,u] of face){assert.ok(d.vertices[v]);assert.ok(d.uv[u]);}});
@@ -179,4 +190,57 @@ test('bed linen does not intersect its mattress and create invented white holes'
       if(z<=2.115)assert.ok(y>.8351,`${n.name} intersects mattress at ${y},${z}`);
     }
   }
+});
+
+async function navigationHarness(getTexture=async()=>new THREE.Texture()){
+  const text=await readFile('src/main.js','utf8');
+  const navigation=text.slice(text.indexOf('let episodeToken=0;'),text.indexOf('function hideUi('));
+  const resize=text.slice(text.indexOf('function resize(){'),text.indexOf("addEventListener('resize',resize)"));
+  return new Function('THREE','OrbitControls','initialView','constrainPosition','terrainHeight','getTexture',`
+    const world={bounds:{minX:-155,maxX:155,minZ:-75,maxZ:75},spawn:[-20,2,35],overview:{position:[4,109,103],target:[-20,13,-16],span:70},destinations:{castle:[-20,4,32]},landmarks:[{id:'central-auditorium',x:-20,z:-16,w:50,d:33}]};
+    const chapters=[{number:1,date:'1913',title:'source',description:'',center:[50,3],draws:[{texture:'atlas.webp',faces:[],vertices:[],uv:[]}]}];
+    const overviewCamera=new THREE.OrthographicCamera(),sourceCamera=new THREE.OrthographicCamera(),explorationCamera=new THREE.PerspectiveCamera(48,1,.1,650);
+    let camera=overviewCamera,mode='overview',sourceMode=false,sourceReturnMode='overview',episode=0,transition=null,lastPointer=null,yaw=0,pitch=0;
+    const modeViews={overview:null,walk:null,fly:null},keys=new Set(),canvas={},document={querySelectorAll:()=>[],exitPointerLock(){}};
+    const matchMedia=()=>({matches:false}),elements=new Map(),$=selector=>{if(!elements.has(selector))elements.set(selector,{});return elements.get(selector);},toast=()=>{};
+    const worldGroup=new THREE.Group(),originalGroup=new THREE.Group(),scene=new THREE.Scene(),renderer={setSize(){}},innerWidth=1600,innerHeight=900;
+    scene.background=new THREE.Color();
+    const orbit=new OrbitControls(camera);orbit.enableDamping=true;orbit.minDistance=5;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
+    ${resize}
+    ${navigation}
+    return {setMode,resetView,toggleSource,jump,resize,world,state:()=>({camera,mode,sourceMode,orbit,yaw,pitch,transition})};
+  `)(THREE,OrbitControls,initialView,constrainPosition,terrainHeight,getTexture);
+}
+function assertPosition(camera,expected){camera.position.toArray().forEach((v,i)=>assert.ok(Math.abs(v-expected[i])<1e-9,`Camera axis ${i}: ${v} != ${expected[i]}`));}
+
+test('overview, walk and fly preserve independent cameras and return-to-start positions',async()=>{
+  const n=await navigationHarness();n.resetView();
+  assert.ok(n.state().camera.isOrthographicCamera);assertPosition(n.state().camera,[4,109,103]);
+  assert.equal(n.state().camera.top-n.state().camera.bottom,70);
+  n.setMode('walk');assert.ok(n.state().camera.isPerspectiveCamera);
+  assert.equal(n.state().camera.position.x,-20);assert.equal(n.state().camera.position.z,35);
+  const direction=n.state().camera.getWorldDirection(new THREE.Vector3());assert.ok(Math.abs(direction.x)<1e-9&&direction.z<0);
+  n.state().camera.position.set(-18,2.5,30);n.setMode('fly');assertPosition(n.state().camera,[-20,20,35]);
+  n.state().camera.position.set(-25,24,31);n.setMode('walk');assertPosition(n.state().camera,[-18,2.5,30]);
+  n.resetView();assert.equal(n.state().camera.position.x,-20);assert.equal(n.state().camera.position.z,35);
+  n.setMode('fly');assertPosition(n.state().camera,[-25,24,31]);
+  n.setMode('overview');assertPosition(n.state().camera,[4,109,103]);assert.equal(n.state().orbit.object,n.state().camera);
+});
+
+test('source mode restores the previous exploration view and cannot overwrite it with a late texture response',async()=>{
+  let resolveTexture;const texture=new Promise(resolve=>resolveTexture=resolve);const n=await navigationHarness(()=>texture);
+  n.resetView();n.setMode('walk');n.state().camera.position.set(-18,2.5,30);
+  const entering=n.toggleSource(true);assert.ok(n.state().camera.isOrthographicCamera);assert.equal(n.state().camera.top-n.state().camera.bottom,20.5);
+  await n.toggleSource(false);assert.equal(n.state().mode,'walk');assertPosition(n.state().camera,[-18,2.5,30]);
+  resolveTexture(new THREE.Texture());await entering;
+  assert.equal(n.state().sourceMode,false);assertPosition(n.state().camera,[-18,2.5,30]);
+  await n.toggleSource(true);assert.equal(n.state().sourceMode,true);assertPosition(n.state().camera,[-2,20,23]);
+  n.setMode('fly');assert.equal(n.state().sourceMode,false);assertPosition(n.state().camera,[-20,20,35]);
+});
+
+test('returning to the start cancels landmark transitions',async()=>{
+  const n=await navigationHarness();n.resetView();n.setMode('walk');n.jump('castle');assert.ok(n.state().transition);
+  n.resetView();assert.equal(n.state().transition,null);assert.equal(n.state().camera.position.z,35);
+  n.setMode('overview');n.jump('castle');assert.ok(n.state().transition.zoom>1);assert.equal(n.state().transition.target.z,-16);
+  n.state().camera.zoom=n.state().transition.zoom;n.resetView();assert.equal(n.state().transition,null);assert.equal(n.state().camera.zoom,1);
 });

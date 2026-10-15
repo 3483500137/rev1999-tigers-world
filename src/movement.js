@@ -22,3 +22,15 @@ export function constrainPosition(position,world,walk=false) {
   }
   return {x,z,y:walk ? ground+1.8 : Math.max(terrainHeight(x,z)+1.8,Math.min(90,position.y))};
 }
+
+export function initialView(world,mode='overview') {
+  if(mode==='overview')return {
+    position:[...(world.overview?.position||[26,98,103])],
+    target:[...(world.overview?.target||[-20,11,-16])],
+    zoom:1,
+  };
+  const [x,y,z]=world.spawn||[-20,2,35];
+  const p=constrainPosition({x,y:mode==='fly'?Math.max(20,y):y,z},world,mode==='walk');
+  const hall=world.landmarks?.find(l=>l.id==='central-auditorium');
+  return {position:[p.x,p.y,p.z],target:[hall?.x??x,mode==='walk'?p.y+1:15,hall?.z??-16],zoom:1};
+}

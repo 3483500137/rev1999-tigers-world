@@ -97,6 +97,72 @@ def cube(name,loc,size,material,solid=False):
     if solid:colliders.append({'x':loc[0],'z':-loc[1],'w':size[0],'d':size[1],'height':size[2],'yMin':loc[2]-size[2]/2})
     return o
 
+def weathered_roof_faces():
+    """Map a source roof quad only onto exposed roofs; leave wall UVs intact."""
+    source='assets/all/m_s08_hddtc_background_a04_manual__416aec4db2.webp'
+    corners=[(528,326),(674,377),(770,317),(625,267)]
+    uv_corners=[Vector((px/2048,1-py/2048)) for px,py in corners]
+    material=mat('Original weathered roof surface',(1,1,1))
+    texture=material.node_tree.nodes.new('ShaderNodeTexImage')
+    texture.image=bpy.data.images.load(os.path.join(ROOT,'public',source),check_existing=True)
+    material.node_tree.links.new(texture.outputs['Color'],next(n for n in material.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Base Color'])
+    material['sourceTexture']=source;material['sourcePixelQuad']=[v for point in corners for v in point]
+    for ob in scene.objects:
+        if ob.type!='MESH' or not (ob.name.startswith('Sports source tower') or ob.name.startswith('Sports isolated') or ob.name.startswith('Reference stone monolith') or ob.name in ('Auditorium weathered roof terrace','Annex closed rear roof')):continue
+        me=ob.data;vs=me.vertices
+        xmin=min(v.co.x for v in vs);xmax=max(v.co.x for v in vs);ymin=min(v.co.y for v in vs);ymax=max(v.co.y for v in vs);zmax=max(v.co.z for v in vs)
+        index=len(me.materials);me.materials.append(material);uv=me.uv_layers.active or me.uv_layers.new()
+        for face in me.polygons:
+            if not all(abs(vs[i].co.z-zmax)<.001 for i in face.vertices):continue
+            face.material_index=index
+            for li in face.loop_indices:
+                v=vs[me.loops[li].vertex_index].co;u=(v.x-xmin)/(xmax-xmin);t=(v.y-ymin)/(ymax-ymin)
+                uv.data[li].uv=(1-t)*((1-u)*uv_corners[0]+u*uv_corners[1])+t*((1-u)*uv_corners[3]+u*uv_corners[2])
+        ob['roofSurfaceSource']=source
+
+def central_sloped_piers():
+    """Visible lower outer piers taper toward the room lintels, not box walls."""
+    for sx in (-38,-2):
+        for side in (-1,1):
+            x=sx+side*5.1;w=2.0;h=12.8;vs=[];fs=[];segments=5
+            for i in range(segments+1):
+                t=i/segments;front=6.6+5.4*t;back=12.8
+                vs.extend([(x-w/2,front,.45+h*t),(x+w/2,front,.45+h*t),(x+w/2,back,.45+h*t),(x-w/2,back,.45+h*t)])
+            for i in range(segments):
+                a=i*4
+                for k in range(4):j=(k+1)%4;fs.append((a+k,a+j,a+j+4,a+k+4))
+            fs.extend([(3,2,1,0),tuple(range(segments*4,segments*4+4))])
+            me=bpy.data.meshes.new('Central tapered outer pier');me.from_pydata(vs,[],fs);me.materials.append(stone)
+            uv=me.uv_layers.new()
+            for face in me.polygons:
+                for li,t in zip(face.loop_indices,STONE_UV):uv.data[li].uv=t
+            ob=bpy.data.objects.new('Central tapered outer pier',me);scene.collection.objects.link(ob)
+            ob['sourceFeature']='central-sloped-outer-pier';ob['sourceTexture']='assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp'
+            # Narrow solid outer edges stay outside the central approach route.
+            colliders.append({'x':x,'z':-9.7,'w':w,'d':6.2,'height':h,'yMin':.45})
+
+def source_foliage_variants():
+    """Keep inferred placements, but restore the two visible foliage silhouettes."""
+    image=bpy.data.images.load(os.path.join(ROOT,'public/assets/all/m_s08_hddtc_background_a03_manual__48c359e04b.webp'),check_existing=True)
+    colors=[]
+    for name,(px,py) in [('Source dark narrow conifer',(685,868)),('Source muted purple fir',(857,892))]:
+        i=((2047-py)*2048+px)*4;sample=image.pixels[i:i+3]
+        color=[v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in sample]
+        m=mat(name,color);m['sourcePixel']=[px,py];colors.append(m)
+    n=12;vs=[(.86*math.cos(i*math.tau/n),.86*math.sin(i*math.tau/n),.15) for i in range(n)]+[(0,0,7.2)]
+    faces=[tuple(range(n-1,-1,-1))]+[(i,(i+1)%n,n) for i in range(n)]
+    cone=bpy.data.meshes.new('Source narrow conical foliage');cone.from_pydata(vs,[],faces);cone.materials.append(colors[0])
+    purple=None
+    for ob in sorted(scene.objects,key=lambda o:o.name):
+        if ob.type!='MESH' or not ob.name.startswith('Fir '):continue
+        try:index=int(ob.name.split()[1])
+        except ValueError:continue
+        if index%14==0:
+            ob.data=cone;ob['sourceFoliage']='narrow-dark-cone';ob['sourcePixel']=[685,868]
+        elif index%37==0:
+            if purple is None:purple=ob.data.copy();purple.materials[1]=colors[1]
+            ob.data=purple;ob['sourceFoliage']='muted-purple-fir';ob['sourcePixel']=[857,892]
+
 def height(x,y):
     ridge=max(0,(y-42)/36)
     t=max(0,min(1,(y-48)/32))
@@ -328,6 +394,13 @@ def auditorium(x,y,z):
         for yy in (-7,5):cube('Auditorium brass roof pin',(x+side*8,y+yy,z+14),(.12,.12,1.3),brass)
     rail('Auditorium front rail',x,y-8.5,z,16)
 
+def auditorium_aisle(x,y,z):
+    # a03: the light centre strip connects dais, curved rows and the front lip.
+    ob=cube('Auditorium raised central aisle',(x,y-2.3,z+.39),(1.08,11.8,.32),trim)
+    ob['sourceFeature']='auditorium-raised-aisle';ob['sourcePixels']=[1180,1650,1240,1760]
+    for yy,zz in [(-7.7,.12),(-7.2,.23),(-6.7,.34)]:
+        cube('Auditorium centre approach step',(x,y+yy,z+zz/2),(1.45,.50,zz),trim)
+
 def reference_building(id,texture,pixels,x,y,w,d):
     root=bpy.data.objects.new('Source building '+id,None);scene.collection.objects.link(root)
     root['referenceBuilding']=id;root['sourceTexture']='assets/all/'+texture;root['sourcePixels']=pixels
@@ -413,15 +486,18 @@ def roof_annex(x,y):
 
 def sports_terrace(x,y):
     before=set(scene.objects);root=reference_building('sports-terrace','m_s08_hddtc_background_a04_manual__416aec4db2.webp',[220,235,1030,1280],x,y,24,24);z=height(x,y)+.5
-    # Chamfered plinth and recessed blue ping-pong niche, not a bedroom.
-    bpy.ops.mesh.primitive_cylinder_add(vertices=8,radius=14,depth=8,location=(x,y,z+4),rotation=(0,0,math.pi/8))
-    ob=bpy.context.object;ob.name='Sports chamfered octagonal plinth';ob.data.materials.append(stone)
-    uv=ob.data.uv_layers.active or ob.data.uv_layers.new()
-    for face in ob.data.polygons:
-        for k,li in enumerate(face.loop_indices):
-            if len(face.loop_indices)==4:uv.data[li].uv=STONE_UV[k]
-            else:
-                a=k*math.tau/len(face.loop_indices);uv.data[li].uv=((900+943)/4096+math.cos(a)*43/4096,1-(1215+1290)/4096+math.sin(a)*75/4096)
+    # The visible base widens and narrows in sloped bands below the court.
+    vs=[];fs=[]
+    for zz,hw,hd in [(0,10.3,9),(2,10.3,9),(3.2,12,10.5),(5,12,10.5),(7.2,10.5,9.5),(9,10.5,9.5)]:
+        for xx,yy in [(-hw+2,-hd),(hw-2,-hd),(hw,-hd+2),(hw,hd-2),(hw-2,hd),(-hw+2,hd),(-hw,hd-2),(-hw,-hd+2)]:vs.append((x+xx,y+yy,z+zz))
+    for level in range(5):
+        for i in range(8):fs.append((level*8+i,level*8+(i+1)%8,(level+1)*8+(i+1)%8,(level+1)*8+i))
+    fs.extend([tuple(range(7,-1,-1)),tuple(range(40,48))])
+    me=bpy.data.meshes.new('Sports sloped tiered plinth');me.from_pydata(vs,[],fs);me.materials.append(stone);uv=me.uv_layers.new()
+    for face in me.polygons:
+        for k,li in enumerate(face.loop_indices):uv.data[li].uv=STONE_UV[k%4]
+    ob=bpy.data.objects.new('Sports sloped tiered plinth',me);scene.collection.objects.link(ob);ob['sourceFeature']='sports-sloped-base'
+    colliders.append({'x':x,'z':-y,'w':24,'d':21,'height':9,'yMin':z})
     floor('Sports rooftop court',x,y,z+9,22,20)
     for xx in (-11,11):cube('Sports side parapet',(x+xx,y,z+10.5),(.7,20,3),stone)
     cube('Sports rear parapet',(x,y+10,z+10.5),(22,.7,3),stone)
@@ -443,8 +519,12 @@ def sports_terrace(x,y):
     for xx,col in [(-1.8,(.45,.07,.04)),(1.8,(.5,.24,.055))]:
         m=mat('Source table paddle '+str(xx),col);cylinder('Table tennis paddle',x+xx,y-7.4,z+10.21,.16,.035,m,16)
         cube('Table tennis paddle short handle',(x+xx+.19,y-7.4,z+10.21),(.22,.06,.035),wood)
-    stepped_tower('Sports tall rear block',x-5,y+15,z,9,10,34)
-    stepped_tower('Sports shorter rear block',x+5,y+14,z,7,8,29)
+    # Flush, interlocking rectangular towers; the source has no crown boxes.
+    for label,dx,dy,w,d,h in [('high rear',2,19,11,10,34),('front',-3.5,12.5,12,8.5,29),('west link',-8,18.5,6.5,8,27),('east mid',9,20,7,7,16),('east low',11,14.8,7,6,11)]:
+        ob=cube('Sports source tower '+label,(x+dx,y+dy,z+h/2),(w,d,h),stone,True);ob['sourceFeature']='sports-interlocking-tower'
+        for level in range(1,int(h/1.1)):
+            cube('Sports tower recessed course',(x+dx,y+dy-d/2-.018,z+level*1.1),(w,.025,.022),joint)
+    cube('Sports source dark upper notch',(x-9.0,y+8.21,z+24.3),(2.2,.03,.65),darktop)
     cube('Sports isolated stone block',(x+14,y+12,z+5),(4,4,10),stone)
     finish_building(root,before)
 
@@ -605,8 +685,12 @@ def orbital_platform(x,y):
     cylinder('Orbital ochre stage',x,y,z+1.02,10.8,.15,seatpad)
     rounded_profile('Orbital silver enclosing rim',x,y,z+1.08,23,23,.35,silver,True)
     for dx,dy in [(-5,-4),(5,-4),(0,5)]:
-        cube('Orbital globe stone plinth',(x+dx,y+dy,z+1.55),(1.8,1.8,1),trim)
-        cylinder('Orbital globe short support',x+dx,y+dy,z+2.5,.23,1,silver,16)
+        cube('Orbital lower white console',(x+dx,y+dy-.30,z+1.60),(1.8,1.8,1.0),ivory)
+        cube('Orbital lower ochre inset',(x+dx,y+dy-1.215,z+1.58),(1.45,.035,.68),seatframe)
+        cube('Orbital upper white console',(x+dx,y+dy-.30,z+2.45),(1.15,1.0,.75),ivory)
+        ob=cube('Orbital upper dark inset',(x+dx,y+dy-.815,z+2.45),(.82,.035,.46),darktop);ob['sourceFeature']='orbital-dark-console'
+        cylinder('Orbital rear black support',x+dx+.28,y+dy+.78,z+2.35,.105,2.6,darktop,16)
+        ob=cube('Orbital angled black bracket',(x+dx+.14,y+dy+.38,z+3.22),(.13,.13,.95),darktop);ob.rotation_euler.x=math.radians(52)
         bpy.ops.mesh.primitive_uv_sphere_add(segments=24,ring_count=12,radius=1.35,location=(x+dx,y+dy,z+3.8));ob=bpy.context.object;ob.name='Orbital silver globe';ob.data.materials.append(silver)
         for a in (0,math.pi*.7,math.pi*1.4):
             bpy.ops.mesh.primitive_uv_sphere_add(segments=8,ring_count=4,radius=.19,location=(x+dx+1.25*math.cos(a),y+dy+1.25*math.sin(a),z+3.8));bpy.context.object.name='Orbital dark globe aperture';bpy.context.object.data.materials.append(darktop)
@@ -626,6 +710,7 @@ x=-20;y=16;z=.45
 floor('Central foundation plinth',x,y,z,50,33)
 stair('Central entrance',x,-3,0,12,7,.45)
 auditorium(x,y-3,z+6.4)
+auditorium_aisle(x,y-3,z+6.4)
 cube('Auditorium wallwash',(x,y+5.65,z+12.4),(13,.02,9),lightmat)
 # The hall sits above a visible strip of narrow windows, not at ground level.
 cube('Auditorium lower rear volume',(x,y+3,z+3.2),(17,10,6.4),stone,True)
@@ -660,6 +745,7 @@ for side in (-1,1):
     cube('Rear passage outer wall',(sx+side*6.3,y+6,z+3.2),(.45,20,6.4),stone,True)
     rail('Rear passage landing rail',sx,y+8.8,z+6.4,10)
 floor('Rear passage connecting gallery',x,y+13,z+6.4,27,4)
+central_sloped_piers()
 rail('Rear passage gallery rail',x,y+11,z+6.4,23)
 for sx in (x-10,x+10):cube('Central gallery column',(sx,y+13,z+3.2),(.8,.8,6.4),trim)
 stair('Rear passage ascending',-13,37,z,3,11,6.4)
@@ -678,6 +764,7 @@ orbital_platform(-137,4)
 # Open central lawn, monuments and castle staircase.
 cube('Castle front lawn',(-20,-5,.15),(34,12,.1),grass)
 for x,y in [(-55,30),(17,17),(111,24)]:cube('Reference stone monolith',(x,y,height(x,y)+5),(6,7,10),stone,True)
+weathered_roof_faces()
 
 # Fir prototype matches the faceted foliage and taper in the official sandtable.
 parts=[]
@@ -710,9 +797,11 @@ for i in range(1450):
     if (7<x<57 and -65<y<-26) or (-106<x<-60 and 29<y<47) or (70<x<111 and 33<y<56):continue
     if -24<x<-9 and 30<y<46:continue
     if near_road(x,y):continue
+    if math.hypot(x+20,y+35)<4:continue
     ob=bpy.data.objects.new('Fir %04d'%i,random.choices(canopies,weights=[.62,.24,.11,.03])[0]);scene.collection.objects.link(ob)
     ob.location=(x,y,height(x,y));sc=random.uniform(.60,1.18);ob.scale=(sc,sc,sc*random.uniform(.95,1.25));ob.rotation_euler.z=random.random()*math.tau
 bpy.data.objects.remove(prototype,do_unlink=True)
+source_foliage_variants()
 # Continuous mountain front: official cliff/snow texture, no generic spheres.
 mountain=mat('Original a01 cliff and snow',(1,1,1))
 tex=mountain.node_tree.nodes.new('ShaderNodeTexImage');tex.image=bpy.data.images.load(os.path.join(ROOT,'public/assets/all/m_s08_hddtc_background_a01_manual__0e4ca30c84.webp'),check_existing=True)
@@ -731,8 +820,9 @@ for p in me.polygons:
     for li in p.loop_indices:
         v=me.vertices[me.loops[li].vertex_index].co;uv.data[li].uv=((v.x+160)/320,.72+(v.y-50)/30*.28)
 ob=bpy.data.objects.new('Reference continuous northern massif',me);scene.collection.objects.link(ob);ob['sourceFeature']='northern-massif'
+for polygon in me.polygons:polygon.use_smooth=True
 
-bpy.ops.object.camera_add(location=(26,-103,109));camera=bpy.context.object;camera.name='World overview'
+bpy.ops.object.camera_add(location=(4,-103,109));camera=bpy.context.object;camera.name='World overview'
 camera.rotation_euler=(Vector((-20,16,13))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=124;scene.camera=camera
 bpy.ops.object.light_add(type='SUN',location=(0,-30,80));sun=bpy.context.object;sun.name='Overcast winter sun';sun.data.energy=1.8;sun.data.angle=math.radians(16);sun.rotation_euler=(.4,-.5,-.3)
 for lx,ly,lz in [(-20,17,17),(-38,18,11),(-2,18,11),(-82,28,11)]:
@@ -746,7 +836,7 @@ scene.render.image_settings.file_format='PNG'
 
 os.makedirs(os.path.join(ROOT,'public/models'),exist_ok=True)
 with open(os.path.join(ROOT,'public/data/world.json'),'w',encoding='utf-8') as f:
-    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'landmarks':landmarks,'roads':[{'points':[[px,-py] for px,py in coords],'width':width} for _,coords,width in road_routes],'destinations':{'castle':[-20,4,32],'east':[34,4,-23],'forest':[-70,4,23]},'spawn':[0,2,35], 'model':'models/tigers-world.glb','revision':4,'sourceScope':'Central openings and eight peripheral silhouettes traced from original atlases; depth, ground positions, vegetation, mountain geometry and hidden faces remain estimated'},f,ensure_ascii=False)
+    json.dump({'bounds':{'minX':-155,'maxX':155,'minZ':-75,'maxZ':75},'colliders':colliders,'walkSurfaces':walk_surfaces,'landmarks':landmarks,'roads':[{'points':[[px,-py] for px,py in coords],'width':width} for _,coords,width in road_routes],'destinations':{'castle':[-20,4,32],'east':[34,4,-23],'forest':[-70,4,23]},'spawn':[-20,2,35],'overview':{'position':[4,109,103],'target':[-20,13,-16],'span':69.75}, 'model':'models/tigers-world.glb','revision':4,'sourceScope':'Central openings and eight peripheral silhouettes traced from original atlases; depth, ground positions, vegetation, mountain geometry and hidden faces remain estimated'},f,ensure_ascii=False)
 bpy.ops.export_scene.gltf(filepath=os.path.join(ROOT,'public/models/tigers-world.glb'),export_format='GLB',use_active_scene=True,export_cameras=False,export_lights=False,export_extras=True)
 
 # A second Blender scene preserves all original draw meshes and their UVs.
